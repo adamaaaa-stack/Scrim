@@ -46,11 +46,16 @@ export const EvaluateArgs = z.object({
 export const GetAccessibilityArgs = z.object({
   selector: z.string().default("body"),
 });
-export const SetViewportArgs = z.object({
-  width: z.number().int().min(320).max(3840),
-  height: z.number().int().min(240).max(2160),
-  preset: z.enum(["iphone", "ipad", "desktop"]).optional(),
-});
+export const SetViewportArgs = z
+  .object({
+    width: z.number().int().min(320).max(3840).optional(),
+    height: z.number().int().min(240).max(2160).optional(),
+    preset: z.enum(["iphone", "ipad", "desktop", "android"]).optional(),
+  })
+  .refine(
+    (d) => d.preset !== undefined || (d.width !== undefined && d.height !== undefined),
+    { message: "Provide either preset or both width and height" },
+  );
 
 export type ToolName =
   | "navigate"
@@ -105,6 +110,7 @@ export interface BrowserWorkerOptions {
 const VIEWPORT_PRESETS = {
   iphone: { width: 390, height: 844 },
   ipad: { width: 1024, height: 1366 },
+  android: { width: 412, height: 915 },
   desktop: { width: 1280, height: 800 },
 } as const;
 
@@ -278,7 +284,13 @@ export class BrowserWorker {
         }
         case "setViewport": {
           const args = SetViewportArgs.parse(call.args);
-          const size = args.preset ? VIEWPORT_PRESETS[args.preset] : { width: args.width, height: args.height };
+          let size: { width: number; height: number };
+          if (args.preset) {
+            size = VIEWPORT_PRESETS[args.preset];
+          } else {
+            // refine() guarantees both are defined here
+            size = { width: args.width!, height: args.height! };
+          }
           await this.page.setViewportSize(size);
           this.viewport = size;
           const obs = await this.snapshot();
