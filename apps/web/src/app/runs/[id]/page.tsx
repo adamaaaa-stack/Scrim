@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { signedScreenshotUrl, supabaseAdmin } from "@/lib/supabase/admin";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StepCard } from "@/components/StepCard";
+import { AutoRefresh } from "@/components/AutoRefresh";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -82,8 +83,11 @@ export default async function RunPage({
 
   const finalAssertion = steps.find((s) => s.tool_name === "assertPass" || s.tool_name === "assertFail");
 
+  const isLive = run.status === "queued" || run.status === "running";
+
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
+      <AutoRefresh enabled={isLive} />
       <Link
         href="/runs"
         className="inline-flex items-center gap-1 text-xs text-[var(--color-ink-500)] hover:text-[var(--color-coral-500)]"

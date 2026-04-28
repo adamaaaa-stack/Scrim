@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { RunCard } from "@/components/RunCard";
+import { ButtonLink } from "@/components/Button";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,16 +31,19 @@ export default async function RunsPage() {
 
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
-      <header className="mb-10">
-        <p className="font-mono text-xs uppercase tracking-widest text-[var(--color-coral-500)]">
-          AI Testing Platform
-        </p>
-        <h1 className="mt-3 font-serif text-4xl tracking-tight text-[var(--color-ink-900)]">
-          Recent runs
-        </h1>
-        <p className="mt-2 text-[15px] text-[var(--color-ink-500)]">
-          Every test the agent has executed, newest first.
-        </p>
+      <header className="mb-10 flex items-end justify-between gap-6">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-widest text-[var(--color-coral-500)]">
+            AI Testing Platform
+          </p>
+          <h1 className="mt-3 font-serif text-4xl tracking-tight text-[var(--color-ink-900)]">
+            Recent runs
+          </h1>
+          <p className="mt-2 text-[15px] text-[var(--color-ink-500)]">
+            Every test the agent has executed, newest first.
+          </p>
+        </div>
+        <ButtonLink href="/runs/new">+ New run</ButtonLink>
       </header>
 
       {runs.length === 0 ? (
