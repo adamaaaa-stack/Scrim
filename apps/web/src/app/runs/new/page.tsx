@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { RunForm } from "./RunForm";
+import { ButtonLink } from "@/components/Button";
 
 export const dynamic = "force-dynamic";
 
@@ -8,13 +9,19 @@ interface Project {
   id: string;
   name: string;
   target_url: string;
+  device_preset: string | null;
 }
 
-export default async function NewRunPage() {
+export default async function NewRunPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ projectId?: string }>;
+}) {
+  const { projectId } = await searchParams;
   const sb = supabaseAdmin();
   const { data } = await sb
     .from("projects")
-    .select("id, name, target_url")
+    .select("id, name, target_url, device_preset")
     .order("created_at", { ascending: false });
   const projects = (data ?? []) as Project[];
 
@@ -45,11 +52,14 @@ export default async function NewRunPage() {
             No projects yet
           </p>
           <p className="mt-2 text-sm text-[var(--color-ink-500)]">
-            Create a project first (project-creation UI lands in the next pass — for now insert one via the Supabase dashboard).
+            Create a project first to test against.
           </p>
+          <div className="mt-6">
+            <ButtonLink href="/projects/new">+ New project</ButtonLink>
+          </div>
         </div>
       ) : (
-        <RunForm projects={projects} />
+        <RunForm projects={projects} defaultProjectId={projectId} />
       )}
     </main>
   );

@@ -1,0 +1,249 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { ButtonLink } from "@/components/Button";
+import { StatusBadge } from "@/components/StatusBadge";
+import { ContextForm } from "./ContextForm";
+
+export const dynamic = "force-dynamic";
+
+interface ProjectRow {
+  id: string;
+  name: string;
+  target_url: string;
+  description: string | null;
+  device_preset: string | null;
+  created_at: string;
+}
+
+interface ContextRow {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  created_at: string;
+}
+
+interface RunRow {
+  id: string;
+  status: string;
+  prompt: string;
+  started_at: string;
+  completed_at: string | null;
+  device_preset: string | null;
+}
+
+export default async function ProjectDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const sb = supabaseAdmin();
+
+  const [{ data: project }, { data: contexts }, { data: runs }] = await Promise.all([
+    sb
+      .from("projects")
+      .select("id, name, target_url, description, device_preset, created_at")
+      .eq("id", id)
+      .single(),
+    sb
+      .from("contexts")
+      .select("id, kind, title, body, created_at")
+      .eq("project_id", id)
+      .order("created_at", { ascending: false }),
+    sb
+      .from("runs")
+      .select("id, status, prompt, started_at, completed_at, device_preset")
+      .eq("project_id", id)
+      .order("started_at", { ascending: false })
+      .limit(10),
+  ]);
+
+  if (!project) notFound();
+  const p = project as ProjectRow;
+  const ctxs = (contexts ?? []) as ContextRow[];
+  const rs = (runs ?? []) as RunRow[];
+
+  return (
+    <main className="mx-auto min-h-screen max-w-5xl px-6 py-12">
+      <Link
+        href="/projects"
+        className="inline-flex items-center gap-1 text-xs text-[var(--color-ink-500)] hover:text-[var(--color-coral-500)]"
+      >
+        ← All projects
+      </Link>
+
+      <header className="mt-6 mb-10 flex items-start justify-between gap-6">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-widest text-[var(--color-coral-500)]">
+            Project
+          </p>
+          <h1 className="mt-2 font-serif text-4xl tracking-tight text-[var(--color-ink-900)]">
+            {p.name}
+          </h1>
+          <a
+            href={p.target_url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-block font-mono text-sm text-[var(--color-ink-500)] hover:text-[var(--color-coral-500)]"
+          >
+            {p.target_url} ↗
+          </a>
+          {p.description && (
+            <p className="mt-3 max-w-xl text-[15px] leading-snug text-[var(--color-ink-700)]">
+              {p.description}
+            </p>
+          )}
+        </div>
+        <ButtonLink href={`/runs/new?projectId=${p.id}`}>+ New run</ButtonLink>
+      </header>
+
+      <div className="grid gap-10 md:grid-cols-3">
+        {/* Settings */}
+        <section className="md:col-span-1">
+          <h2 className="mb-4 font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+            Settings
+          </h2>
+          <div className="space-y-3 rounded-2xl border border-[var(--color-cream-200)] bg-white p-5 text-sm">
+            <Row label="Device" value={p.device_preset ?? "desktop"} mono />
+            <Row label="Created" value={new Date(p.created_at).toLocaleDateString()} />
+            <Row label="ID" value={p.id} mono small />
+          </div>
+
+          <h2 className="mb-4 mt-10 font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+            Integrations
+          </h2>
+          <div className="space-y-2 rounded-2xl border border-dashed border-[var(--color-cream-300)] bg-white p-5 text-sm">
+            <IntegrationStub name="GitHub" detail="File issues + open PRs on failure" />
+            <IntegrationStub name="Sentry" detail="Correlate failures with production errors" />
+            <p className="pt-2 text-xs text-[var(--color-ink-400)]">
+              Coming next phase.
+            </p>
+          </div>
+        </section>
+
+        {/* Context + Runs */}
+        <section className="md:col-span-2 space-y-10">
+          <div>
+            <h2 className="mb-4 font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+              Context library ({ctxs.length})
+            </h2>
+            <div className="rounded-2xl border border-[var(--color-cream-200)] bg-white p-5">
+              <ContextForm projectId={p.id} />
+            </div>
+            {ctxs.length > 0 && (
+              <ul className="mt-4 space-y-2">
+                {ctxs.map((c) => (
+                  <li
+                    key={c.id}
+                    className="rounded-xl border border-[var(--color-cream-200)] bg-white p-4"
+                  >
+                    <div className="flex items-baseline justify-between gap-3">
+                      <div className="flex items-baseline gap-2">
+                        <span className="rounded-full bg-[var(--color-cream-200)] px-2 py-0.5 font-mono text-[10px] uppercase">
+                          {c.kind}
+                        </span>
+                        <span className="font-medium text-[var(--color-ink-900)]">
+                          {c.title}
+                        </span>
+                      </div>
+                      <span className="text-xs text-[var(--color-ink-400)]">
+                        {new Date(c.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-[var(--color-ink-500)]">
+                        Show body ({c.body.length} chars)
+                      </summary>
+                      <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-[var(--color-cream-100)] p-3 font-mono text-xs whitespace-pre-wrap">
+                        {c.body}
+                      </pre>
+                    </details>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div>
+            <h2 className="mb-4 font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+              Recent runs ({rs.length})
+            </h2>
+            {rs.length === 0 ? (
+              <p className="rounded-2xl border border-dashed border-[var(--color-cream-300)] bg-white p-8 text-center text-sm text-[var(--color-ink-500)]">
+                No runs yet for this project.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {rs.map((r) => (
+                  <li key={r.id}>
+                    <Link
+                      href={`/runs/${r.id}`}
+                      className="block rounded-xl border border-[var(--color-cream-200)] bg-white p-4 transition hover:border-[var(--color-coral-400)]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="line-clamp-2 flex-1 text-sm text-[var(--color-ink-900)]">
+                          {r.prompt}
+                        </p>
+                        <StatusBadge status={r.status} />
+                      </div>
+                      <div className="mt-2 flex items-center gap-3 text-xs text-[var(--color-ink-500)]">
+                        <span>{new Date(r.started_at).toLocaleString()}</span>
+                        {r.device_preset && (
+                          <>
+                            <span>·</span>
+                            <span className="font-mono">{r.device_preset}</span>
+                          </>
+                        )}
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function Row({
+  label,
+  value,
+  mono,
+  small,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  small?: boolean;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+        {label}
+      </span>
+      <span
+        className={`${mono ? "font-mono" : ""} ${small ? "text-[10px]" : "text-sm"} text-[var(--color-ink-900)]`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function IntegrationStub({ name, detail }: { name: string; detail: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2">
+      <div>
+        <p className="font-medium text-[var(--color-ink-700)]">{name}</p>
+        <p className="text-xs text-[var(--color-ink-500)]">{detail}</p>
+      </div>
+      <span className="rounded-full bg-[var(--color-cream-200)] px-2 py-0.5 font-mono text-[10px] uppercase text-[var(--color-ink-500)]">
+        Not connected
+      </span>
+    </div>
+  );
+}

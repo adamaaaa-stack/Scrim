@@ -13,8 +13,17 @@ interface Project {
 
 const initial: CreateRunFormState = { ok: true };
 
-export function RunForm({ projects }: { projects: Project[] }) {
+export function RunForm({
+  projects,
+  defaultProjectId,
+}: {
+  projects: Project[];
+  defaultProjectId?: string;
+}) {
   const [state, formAction, pending] = useActionState(createRun, initial);
+  const initialProject = defaultProjectId && projects.some((p) => p.id === defaultProjectId)
+    ? defaultProjectId
+    : projects[0]?.id ?? "";
 
   return (
     <form action={formAction} className="space-y-6">
@@ -29,7 +38,7 @@ export function RunForm({ projects }: { projects: Project[] }) {
           id="projectId"
           name="projectId"
           required
-          defaultValue={projects[0]?.id ?? ""}
+          defaultValue={initialProject}
           className="mt-2 w-full appearance-none rounded-xl border border-[var(--color-cream-300)] bg-white px-4 py-3 text-sm text-[var(--color-ink-900)] focus:border-[var(--color-coral-500)] focus:outline-none"
         >
           {projects.map((p) => (
