@@ -7,6 +7,7 @@ import type {
 import {
   BROWSER_TOOLS,
   BrowserWorker,
+  type DevicePreset,
   type Observation,
   type ToolName,
 } from "../workers/browser.js";
@@ -86,6 +87,7 @@ export interface AgentLoopInput {
   context: string;
   targetUrl: string;
   model?: string;
+  devicePreset?: DevicePreset;
 }
 
 export interface AgentLoopResult {
@@ -107,9 +109,14 @@ export async function runAgentLoop(
   llm: OpenRouterClient,
   input: AgentLoopInput,
 ): Promise<AgentLoopResult> {
-  await updateRun(input.runId, { status: "running" });
+  const devicePreset = input.devicePreset ?? "desktop";
+  await updateRun(input.runId, { status: "running", devicePreset });
 
-  const worker = new BrowserWorker({ runId: input.runId });
+  const worker = new BrowserWorker({
+    runId: input.runId,
+    devicePreset,
+    recordTrace: true,
+  });
   await worker.start();
 
   const messages: ChatMessage[] = [
@@ -282,6 +289,14 @@ export async function runAgentLoop(
     return await finish("errored", message, -1);
   } finally {
     await worker.stop().catch(() => {});
+    // After stop(), the trace has been uploaded. Persist its path so the
+    // viewer can link to the Playwright trace viewer.
+    const tracePath = worker.getTracePath();
+    if (tracePath) {
+      await updateRun(input.runId, { tracePath }).catch((err) =>
+        logger.warn({ err, runId: input.runId }, "trace path persist failed"),
+      );
+    }
   }
 
   async function finish(

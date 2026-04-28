@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { signedScreenshotUrl, supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  signedScreenshotUrl,
+  signedTraceUrl,
+  supabaseAdmin,
+} from "@/lib/supabase/admin";
 import { StatusBadge } from "@/components/StatusBadge";
 import { StepCard } from "@/components/StepCard";
 import { AutoRefresh } from "@/components/AutoRefresh";
@@ -18,6 +22,7 @@ interface StepRow {
   screenshot_path: string | null;
   dom_snapshot: string | null;
   console_log: string[] | null;
+  network_log: unknown[] | null;
   judgment_pass: boolean | null;
   judgment_reason: string | null;
 }
@@ -31,7 +36,9 @@ interface RunRow {
   started_at: string;
   completed_at: string | null;
   project_id: string;
-  projects: { name: string; target_url: string } | null;
+  trace_path: string | null;
+  device_preset: string | null;
+  projects: { name: string; target_url: string; device_preset: string | null } | null;
 }
 
 function formatDuration(start: string, end: string | null): string {
@@ -54,14 +61,14 @@ export default async function RunPage({
     sb
       .from("runs")
       .select(
-        "id, status, prompt, model, error, started_at, completed_at, project_id, projects(name, target_url)",
+        "id, status, prompt, model, error, started_at, completed_at, project_id, trace_path, device_preset, projects(name, target_url, device_preset)",
       )
       .eq("id", id)
       .single(),
     sb
       .from("steps")
       .select(
-        "id, index, kind, intent, tool_name, tool_args, screenshot_path, dom_snapshot, console_log, judgment_pass, judgment_reason",
+        "id, index, kind, intent, tool_name, tool_args, screenshot_path, dom_snapshot, console_log, network_log, judgment_pass, judgment_reason",
       )
       .eq("run_id", id)
       .order("index", { ascending: true }),
@@ -75,6 +82,14 @@ export default async function RunPage({
   const steps = await Promise.all(
     stepRows.map(async (s) => ({
       ...s,
+      network_log: (s.network_log ?? null) as Array<{
+        ts: number;
+        method?: string;
+        status?: number;
+        url: string;
+        resourceType?: string;
+        failed?: boolean;
+      }> | null,
       screenshot_url: s.screenshot_path
         ? await signedScreenshotUrl(s.screenshot_path, 3600)
         : null,
@@ -82,6 +97,11 @@ export default async function RunPage({
   );
 
   const finalAssertion = steps.find((s) => s.tool_name === "assertPass" || s.tool_name === "assertFail");
+  const traceSignedUrl = run.trace_path ? await signedTraceUrl(run.trace_path, 3600) : null;
+  const traceViewerUrl = traceSignedUrl
+    ? `https://trace.playwright.dev/?trace=${encodeURIComponent(traceSignedUrl)}`
+    : null;
+  const devicePreset = run.device_preset ?? run.projects?.device_preset ?? "desktop";
 
   const isLive = run.status === "queued" || run.status === "running";
 
@@ -128,6 +148,23 @@ export default async function RunPage({
           <span>{steps.length} steps</span>
           <span>·</span>
           <span className="font-mono">{run.model}</span>
+          <span>·</span>
+          <span className="rounded-full bg-[var(--color-cream-200)] px-2 py-0.5 font-mono">
+            {devicePreset}
+          </span>
+          {traceViewerUrl && (
+            <>
+              <span>·</span>
+              <a
+                href={traceViewerUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-[var(--color-coral-500)] hover:underline"
+              >
+                Open trace ↗
+              </a>
+            </>
+          )}
         </div>
 
         {run.error && (

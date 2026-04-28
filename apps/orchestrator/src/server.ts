@@ -11,6 +11,7 @@ const RunRequest = z.object({
   prompt: z.string().min(1),
   contextRefs: z.array(z.string().uuid()).default([]),
   model: z.string().optional(),
+  devicePreset: z.enum(["desktop", "iphone", "ipad", "android"]).optional(),
 });
 
 export function buildServer() {
@@ -25,18 +26,19 @@ export function buildServer() {
       return c.json({ error: parsed.error.flatten() }, 400);
     }
 
-    const { projectId, prompt, contextRefs, model } = parsed.data;
+    const { projectId, prompt, contextRefs, model, devicePreset } = parsed.data;
     const sb = supabaseAdmin();
 
     // Look up project + concatenate context bodies (MVP: simple string concat)
     const { data: project, error: projectErr } = await sb
       .from("projects")
-      .select("target_url")
+      .select("target_url, device_preset")
       .eq("id", projectId)
       .single();
     if (projectErr || !project) {
       return c.json({ error: "Project not found" }, 404);
     }
+    const effectiveDevice = devicePreset ?? (project.device_preset as "desktop" | "iphone" | "ipad" | "android" | null) ?? "desktop";
 
     let context = "";
     if (contextRefs.length > 0) {
@@ -71,6 +73,7 @@ export function buildServer() {
       prompt,
       context,
       targetUrl: project.target_url,
+      devicePreset: effectiveDevice,
       ...(model ? { model } : {}),
     }).catch((err) =>
       logger.error({ err, runId }, "agent loop top-level error"),

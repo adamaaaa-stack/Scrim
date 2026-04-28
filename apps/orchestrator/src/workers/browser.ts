@@ -1,7 +1,20 @@
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { mkdtemp, rm } from "fs/promises";
+import { join } from "path";
+import { tmpdir } from "os";
+import { chromium, devices, type Browser, type BrowserContext, type Page } from "playwright";
 import { z } from "zod";
 import { uploadScreenshot } from "../storage/screenshots.js";
+import { uploadTrace } from "../storage/traces.js";
 import { logger } from "../logger.js";
+
+export type DevicePreset = "desktop" | "iphone" | "ipad" | "android";
+
+const DEVICE_PROFILES = {
+  desktop: { viewport: { width: 1280, height: 800 } },
+  iphone: devices["iPhone 14 Pro"],
+  ipad: devices["iPad Pro 11"],
+  android: devices["Pixel 7"],
+} as const;
 
 // ============================================================
 // Tool argument schemas — these double as JSON-schema for the LLM
@@ -85,6 +98,8 @@ export interface BrowserWorkerOptions {
   runId: string;
   headless?: boolean;
   viewport?: { width: number; height: number };
+  devicePreset?: DevicePreset;
+  recordTrace?: boolean;
 }
 
 const VIEWPORT_PRESETS = {
@@ -101,14 +116,32 @@ export class BrowserWorker {
   private consoleBuffer: string[] = [];
   private networkBuffer: NetworkEntry[] = [];
   private viewport: { width: number; height: number };
+  private traceDir: string | null = null;
+  private tracePath: string | null = null;
 
   constructor(private opts: BrowserWorkerOptions) {
-    this.viewport = opts.viewport ?? VIEWPORT_PRESETS.desktop;
+    const preset = opts.devicePreset ?? "desktop";
+    const profile = DEVICE_PROFILES[preset];
+    const profileViewport = "viewport" in profile && profile.viewport ? profile.viewport : undefined;
+    this.viewport = opts.viewport ?? profileViewport ?? VIEWPORT_PRESETS.desktop;
   }
 
   async start(): Promise<void> {
     this.browser = await chromium.launch({ headless: this.opts.headless ?? true });
-    this.context = await this.browser.newContext({ viewport: this.viewport });
+    const preset = this.opts.devicePreset ?? "desktop";
+    const profile = DEVICE_PROFILES[preset];
+    this.context = await this.browser.newContext({
+      ...profile,
+      viewport: this.viewport,
+    });
+    if (this.opts.recordTrace) {
+      this.traceDir = await mkdtemp(join(tmpdir(), `trace-${this.opts.runId}-`));
+      await this.context.tracing.start({
+        screenshots: true,
+        snapshots: true,
+        sources: false,
+      });
+    }
     this.page = await this.context.newPage();
 
     this.page.on("console", (msg) => {
@@ -154,12 +187,29 @@ export class BrowserWorker {
   }
 
   async stop(): Promise<void> {
+    if (this.context && this.opts.recordTrace && this.traceDir) {
+      const localPath = join(this.traceDir, "trace.zip");
+      try {
+        await this.context.tracing.stop({ path: localPath });
+        this.tracePath = await uploadTrace({ runId: this.opts.runId, localPath });
+      } catch (err) {
+        logger.warn({ err, runId: this.opts.runId }, "trace upload failed");
+      }
+    }
     await this.context?.close();
     await this.browser?.close();
+    if (this.traceDir) {
+      await rm(this.traceDir, { recursive: true, force: true }).catch(() => {});
+    }
     this.browser = null;
     this.context = null;
     this.page = null;
-    logger.info({ runId: this.opts.runId }, "browser worker stopped");
+    logger.info({ runId: this.opts.runId, tracePath: this.tracePath }, "browser worker stopped");
+  }
+
+  /** Available after stop() if recordTrace was true. */
+  getTracePath(): string | null {
+    return this.tracePath;
   }
 
   async execute(call: ToolCall): Promise<Observation> {

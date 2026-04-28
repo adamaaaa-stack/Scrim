@@ -7,6 +7,7 @@ const Input = z.object({
   projectId: z.string().uuid(),
   prompt: z.string().min(5, "Prompt must be at least 5 characters"),
   model: z.string().optional(),
+  devicePreset: z.enum(["desktop", "iphone", "ipad", "android"]).optional(),
 });
 
 export type CreateRunFormState = {
@@ -18,10 +19,14 @@ export async function createRun(
   _prev: CreateRunFormState,
   formData: FormData,
 ): Promise<CreateRunFormState> {
+  const dp = String(formData.get("devicePreset") ?? "").trim();
   const raw = {
     projectId: String(formData.get("projectId") ?? ""),
     prompt: String(formData.get("prompt") ?? "").trim(),
     model: String(formData.get("model") ?? "").trim() || undefined,
+    devicePreset: dp === "desktop" || dp === "iphone" || dp === "ipad" || dp === "android"
+      ? dp
+      : undefined,
   };
 
   const parsed = Input.safeParse(raw);

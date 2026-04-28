@@ -38,3 +38,15 @@ export async function signedScreenshotUrl(
     .createSignedUrl(path, expiresInSeconds);
   return data?.signedUrl ?? null;
 }
+
+/** Return a short-lived signed URL for a Playwright trace.zip. */
+export async function signedTraceUrl(
+  path: string,
+  expiresInSeconds = 3600,
+): Promise<string | null> {
+  const sb = supabaseAdmin();
+  const { data } = await sb.storage
+    .from("traces")
+    .createSignedUrl(path, expiresInSeconds);
+  return data?.signedUrl ?? null;
+}

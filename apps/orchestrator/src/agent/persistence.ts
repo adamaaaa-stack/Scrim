@@ -43,6 +43,8 @@ export async function updateRun(
     status?: DbRunStatus;
     error?: string | null;
     completedAt?: Date;
+    tracePath?: string | null;
+    devicePreset?: string | null;
   },
 ): Promise<void> {
   const sb = supabaseAdmin();
@@ -52,6 +54,8 @@ export async function updateRun(
       ...(patch.status ? { status: patch.status } : {}),
       ...(patch.error !== undefined ? { error: patch.error } : {}),
       ...(patch.completedAt ? { completed_at: patch.completedAt.toISOString() } : {}),
+      ...(patch.tracePath !== undefined ? { trace_path: patch.tracePath } : {}),
+      ...(patch.devicePreset !== undefined ? { device_preset: patch.devicePreset } : {}),
     })
     .eq("id", runId);
   if (error) throw new Error(`updateRun failed: ${error.message}`);

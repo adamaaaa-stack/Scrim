@@ -8,6 +8,7 @@ interface Project {
   id: string;
   name: string;
   target_url: string;
+  device_preset?: string | null;
 }
 
 const initial: CreateRunFormState = { ok: true };
@@ -61,20 +62,43 @@ export function RunForm({ projects }: { projects: Project[] }) {
 
       <details className="text-sm text-[var(--color-ink-500)]">
         <summary className="cursor-pointer">Advanced</summary>
-        <div className="mt-4">
-          <label
-            htmlFor="model"
-            className="block text-xs font-medium uppercase tracking-widest text-[var(--color-ink-500)]"
-          >
-            Model override (OpenRouter id)
-          </label>
-          <input
-            id="model"
-            name="model"
-            type="text"
-            placeholder="x-ai/grok-4.1-fast (default)"
-            className="mt-2 w-full rounded-xl border border-[var(--color-cream-300)] bg-white px-4 py-3 font-mono text-sm focus:border-[var(--color-coral-500)] focus:outline-none"
-          />
+        <div className="mt-4 space-y-4">
+          <div>
+            <label
+              htmlFor="devicePreset"
+              className="block text-xs font-medium uppercase tracking-widest text-[var(--color-ink-500)]"
+            >
+              Device preset (overrides project default)
+            </label>
+            <select
+              id="devicePreset"
+              name="devicePreset"
+              defaultValue=""
+              className="mt-2 w-full appearance-none rounded-xl border border-[var(--color-cream-300)] bg-white px-4 py-3 font-mono text-sm focus:border-[var(--color-coral-500)] focus:outline-none"
+            >
+              <option value="">— use project default —</option>
+              <option value="desktop">desktop (1280×800)</option>
+              <option value="iphone">iphone (iPhone 14 Pro)</option>
+              <option value="ipad">ipad (iPad Pro 11)</option>
+              <option value="android">android (Pixel 7)</option>
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="model"
+              className="block text-xs font-medium uppercase tracking-widest text-[var(--color-ink-500)]"
+            >
+              Model override (OpenRouter id)
+            </label>
+            <input
+              id="model"
+              name="model"
+              type="text"
+              placeholder="x-ai/grok-4.1-fast (default)"
+              className="mt-2 w-full rounded-xl border border-[var(--color-cream-300)] bg-white px-4 py-3 font-mono text-sm focus:border-[var(--color-coral-500)] focus:outline-none"
+            />
+          </div>
         </div>
       </details>
 
