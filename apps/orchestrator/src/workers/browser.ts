@@ -269,7 +269,10 @@ export class BrowserWorker {
         case "getDom": {
           const { selector, maxChars } = GetDomArgs.parse(call.args);
           const html = selector
-            ? await this.page.locator(selector).first().innerHTML()
+            ? await this.page
+                .locator(selector)
+                .first()
+                .innerHTML({ timeout: 5000 })
             : await this.page.content();
           return {
             ok: true,
@@ -281,12 +284,14 @@ export class BrowserWorker {
         }
         case "evaluate": {
           const { expression } = EvaluateArgs.parse(call.args);
-          // Grok sometimes HTML-encodes JS in tool args (&amp;&amp; for &&,
-          // &gt; for >, etc). Decode common entities before evaluating so
-          // these calls don't waste tokens on syntax errors.
           const decoded = decodeHtmlEntities(expression);
+          // Wrap so both single expressions ("document.title") and multi-
+          // statement bodies ("const x = 1; return x;") work. If the user's
+          // input doesn't contain `return`, prepend one for the common case.
+          const looksLikeBody = /\breturn\b/.test(decoded) || decoded.trim().startsWith("(");
+          const body = looksLikeBody ? decoded : `return (${decoded});`;
           const result = await this.page.evaluate(
-            new Function(`return (async () => { return (${decoded}); })();`) as () => Promise<unknown>,
+            new Function(`return (async () => { ${body} })();`) as () => Promise<unknown>,
           );
           const obs = await this.snapshot();
           return { ...obs, evaluateResult: serializeForLLM(result) };

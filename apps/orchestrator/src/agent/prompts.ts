@@ -23,7 +23,15 @@ ${input.context.trim() || "(none provided — work from the user prompt alone)"}
 - wait(selector|ms)       — wait for an element or fixed time
 - screenshot(fullPage?)   — capture the visible page (saved for the run viewer)
 - getDom(selector?)       — read the HTML of the page or a single element
-- evaluate(expression)    — run a JS expression in the page; returns its value
+- evaluate(expression)    — run JS in the page; returns the value of the
+                            last expression. Use a SINGLE expression
+                            (e.g. \`document.title\`) or a function body
+                            with explicit \`return\` (e.g.
+                            \`const x = document.images.length; return x;\`).
+                            Chained semicolons WITHOUT return only execute
+                            and lose the value. To get multiple values back,
+                            return an object: \`return {title: document.title,
+                            images: document.images.length}\`
 - getAccessibility()      — semantic tree (roles, names, focusable nodes)
 - setViewport(preset|wh)  — resize ('iphone' | 'ipad' | 'desktop' or explicit)
 - signIn(credentialName, fieldSelectors[, submitSelector|pressEnterAfter])
