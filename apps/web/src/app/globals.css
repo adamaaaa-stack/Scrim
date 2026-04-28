@@ -1,38 +1,83 @@
 @import "tailwindcss";
 
+/* ============================================================
+   Claude-inspired design tokens
+   Warm cream backgrounds, coral accent, serif headings,
+   generous spacing, subtle borders. Editorial > flashy.
+   ============================================================ */
+
+@theme {
+  --color-cream-50:  #FBF8F2;
+  --color-cream-100: #F5F0E6;
+  --color-cream-200: #ECE4D3;
+  --color-cream-300: #DDD2BB;
+
+  --color-ink-900:   #1F1B16;
+  --color-ink-700:   #3D3729;
+  --color-ink-500:   #6B6258;
+  --color-ink-400:   #8B8278;
+  --color-ink-300:   #ADA59A;
+
+  --color-coral-600: #BB5A3C;
+  --color-coral-500: #CC785C;
+  --color-coral-400: #D9947B;
+  --color-coral-100: #F5E4DC;
+
+  --color-sage-700:  #5C7A4D;
+  --color-sage-500:  #7A9B6B;
+  --color-sage-100:  #E4EDDD;
+
+  --color-rust-600:  #A4543F;
+  --color-rust-500:  #B85450;
+  --color-rust-100:  #F0DCD6;
+
+  --color-amber-500: #C68B4F;
+  --color-amber-100: #F2E5CF;
+
+  --font-serif: "Source Serif 4", Georgia, serif;
+  --font-sans:  var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-mono:  "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
 @layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --border: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-    --radius: 0.5rem;
+  html {
+    background: var(--color-cream-50);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
   }
 
-  .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --border: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-  }
-
-  * {
-    border-color: hsl(var(--border));
-  }
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background: var(--color-cream-50);
   }
+
+  h1, h2, h3 {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background: var(--color-coral-100);
+    color: var(--color-ink-900);
+  }
+}
+
+/* Subtle pulse for live "running" status */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+/* Timeline connector line */
+.timeline-line {
+  background: linear-gradient(
+    to bottom,
+    var(--color-cream-300) 0%,
+    var(--color-cream-300) 100%
+  );
 }
