@@ -10,7 +10,6 @@ import {
   type Observation,
   type ToolName,
 } from "../workers/browser.js";
-import { signedScreenshotUrl } from "../storage/screenshots.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { persistStep, updateRun } from "./persistence.js";
 import { logger } from "../logger.js";
@@ -180,7 +179,7 @@ export async function runAgentLoop(
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
-          content: await formatToolResult(name, obs),
+          content: formatToolResult(obs),
         });
       }
     }
@@ -219,17 +218,15 @@ export async function runAgentLoop(
 }
 
 /**
- * Format browser observation as a tool-result message for the LLM.
- * For navigate/screenshot calls we attach a signed image URL so Grok can see
- * the page; other tools return text only to keep token cost down.
+ * Format browser observation as a string tool-result for the LLM.
+ * xAI rejects array content in tool messages, so vision is text-only here;
+ * screenshots are still saved to storage for the run viewer.
  */
-async function formatToolResult(
-  toolName: string,
-  obs: Observation,
-): Promise<ChatMessage["content"]> {
-  const summary = [
+function formatToolResult(obs: Observation): string {
+  return [
     obs.ok ? "ok" : `error: ${obs.error ?? "unknown"}`,
     obs.url ? `url: ${obs.url}` : null,
+    obs.screenshotPath ? `screenshot saved: ${obs.screenshotPath}` : null,
     obs.domSnippet ? `dom (truncated):\n${obs.domSnippet.slice(0, 4000)}` : null,
     obs.consoleLog && obs.consoleLog.length > 0
       ? `console (last 10):\n${obs.consoleLog.slice(-10).join("\n")}`
@@ -237,17 +234,4 @@ async function formatToolResult(
   ]
     .filter(Boolean)
     .join("\n\n");
-
-  const includeImage =
-    obs.ok && obs.screenshotPath && (toolName === "navigate" || toolName === "screenshot");
-
-  if (includeImage && obs.screenshotPath) {
-    const url = await signedScreenshotUrl(obs.screenshotPath, 3600);
-    return [
-      { type: "text", text: summary },
-      { type: "image_url", image_url: { url } },
-    ];
-  }
-
-  return summary;
 }
