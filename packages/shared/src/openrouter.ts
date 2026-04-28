@@ -5,10 +5,17 @@
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string | Array<{ type: string; [k: string]: unknown }>;
   tool_call_id?: string;
+  tool_calls?: ToolCall[];
   name?: string;
 }
 
