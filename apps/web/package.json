@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ai-testing/shared": "workspace:*",
+    "@octokit/rest": "^21.0.2",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.47.0",
     "class-variance-authority": "^0.7.1",

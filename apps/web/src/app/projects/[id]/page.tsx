@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ButtonLink } from "@/components/Button";
 import { StatusBadge } from "@/components/StatusBadge";
+import { loadGithubIntegration } from "@/lib/github";
 import { ContextForm } from "./ContextForm";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export default async function ProjectDetailPage({
   const { id } = await params;
   const sb = supabaseAdmin();
 
-  const [{ data: project }, { data: contexts }, { data: runs }] = await Promise.all([
+  const [{ data: project }, { data: contexts }, { data: runs }, github] = await Promise.all([
     sb
       .from("projects")
       .select("id, name, target_url, description, device_preset, created_at")
@@ -58,6 +59,7 @@ export default async function ProjectDetailPage({
       .eq("project_id", id)
       .order("started_at", { ascending: false })
       .limit(10),
+    loadGithubIntegration(id),
   ]);
 
   if (!project) notFound();
@@ -114,12 +116,51 @@ export default async function ProjectDetailPage({
           <h2 className="mb-4 mt-10 font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
             Integrations
           </h2>
-          <div className="space-y-2 rounded-2xl border border-dashed border-[var(--color-cream-300)] bg-white p-5 text-sm">
-            <IntegrationStub name="GitHub" detail="File issues + open PRs on failure" />
+          <div className="space-y-3 rounded-2xl border border-[var(--color-cream-200)] bg-white p-5 text-sm">
+            {github ? (
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-[var(--color-ink-700)]">GitHub</p>
+                    <p className="text-xs text-[var(--color-ink-500)]">
+                      Connected as <span className="font-mono">@{github.user.login}</span>
+                    </p>
+                    {github.repo ? (
+                      <p className="mt-1 font-mono text-xs text-[var(--color-ink-900)]">
+                        ↳ {github.repo.full_name}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs text-[var(--color-amber-500)]">
+                        ⚠ No repo selected yet
+                      </p>
+                    )}
+                  </div>
+                  <Link
+                    href={`/projects/${p.id}/integrations/github`}
+                    className="rounded-full bg-[var(--color-cream-200)] px-3 py-1 font-mono text-[10px] uppercase text-[var(--color-ink-700)] hover:bg-[var(--color-coral-100)]"
+                  >
+                    {github.repo ? "Change" : "Pick repo"}
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium text-[var(--color-ink-700)]">GitHub</p>
+                  <p className="text-xs text-[var(--color-ink-500)]">
+                    File issues + open PRs on failure
+                  </p>
+                </div>
+                <a
+                  href={`/api/auth/github/start?projectId=${p.id}`}
+                  className="rounded-full bg-[var(--color-coral-500)] px-3 py-1 font-mono text-[10px] uppercase text-white hover:bg-[var(--color-coral-600)]"
+                >
+                  Connect
+                </a>
+              </div>
+            )}
+            <hr className="border-[var(--color-cream-200)]" />
             <IntegrationStub name="Sentry" detail="Correlate failures with production errors" />
-            <p className="pt-2 text-xs text-[var(--color-ink-400)]">
-              Coming next phase.
-            </p>
           </div>
         </section>
 
