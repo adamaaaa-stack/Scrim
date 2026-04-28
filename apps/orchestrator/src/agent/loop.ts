@@ -14,7 +14,8 @@ import { buildSystemPrompt } from "./prompts.js";
 import { persistStep, updateRun } from "./persistence.js";
 import { logger } from "../logger.js";
 
-const MAX_ITERATIONS = 25;
+const MAX_ITERATIONS = 30;
+const MIN_SUBSTANTIVE_CALLS = 5;
 const BROWSER_TOOL_NAMES: ReadonlySet<string> = new Set([
   "navigate",
   "click",
@@ -22,7 +23,33 @@ const BROWSER_TOOL_NAMES: ReadonlySet<string> = new Set([
   "wait",
   "screenshot",
   "getDom",
+  "evaluate",
+  "getAccessibility",
+  "setViewport",
 ]);
+
+const PLANNING_TOOLS: ToolDef[] = [
+  {
+    type: "function",
+    function: {
+      name: "plan",
+      description:
+        "REQUIRED FIRST TOOL CALL. Declare 3-7 specific, testable checks you will perform. Each check should be one short sentence describing what to verify and roughly how.",
+      parameters: {
+        type: "object",
+        properties: {
+          checks: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 3,
+            maxItems: 7,
+          },
+        },
+        required: ["checks"],
+      },
+    },
+  },
+];
 
 const ASSERTION_TOOLS: ToolDef[] = [
   {
@@ -30,7 +57,7 @@ const ASSERTION_TOOLS: ToolDef[] = [
     function: {
       name: "assertPass",
       description:
-        "Call this when the user's test prompt has been verified to succeed. Include a one-sentence reason.",
+        "Final verdict: the user's prompt has been verified to succeed. MUST cite specific evidence per check from your plan. Rejected if fewer than 5 substantive tool calls have been made.",
       parameters: {
         type: "object",
         properties: { reason: { type: "string" } },
@@ -43,7 +70,7 @@ const ASSERTION_TOOLS: ToolDef[] = [
     function: {
       name: "assertFail",
       description:
-        "Call this when the user's test prompt has been verified to fail. Include a one-sentence reason explaining what went wrong.",
+        "Final verdict: the user's prompt has been verified to fail. MUST name the failing check and cite the observed evidence.",
       parameters: {
         type: "object",
         properties: { reason: { type: "string" } },
@@ -90,8 +117,10 @@ export async function runAgentLoop(
     { role: "user", content: input.prompt },
   ];
 
-  const tools = [...BROWSER_TOOLS, ...ASSERTION_TOOLS];
+  const tools = [...PLANNING_TOOLS, ...BROWSER_TOOLS, ...ASSERTION_TOOLS];
   let stepIndex = 0;
+  let substantiveCalls = 0;
+  let planSubmitted = false;
 
   try {
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -134,7 +163,55 @@ export async function runAgentLoop(
           parsedArgs = {};
         }
 
+        // 1. Plan tool — must come first.
+        if (name === "plan") {
+          const checks = Array.isArray(parsedArgs.checks)
+            ? (parsedArgs.checks as unknown[]).map(String)
+            : [];
+          if (checks.length < 3) {
+            messages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              content: "Error: plan must include at least 3 specific checks. Try again.",
+            });
+            continue;
+          }
+          planSubmitted = true;
+          stepIndex += 1;
+          await persistStep({
+            runId: input.runId,
+            index: stepIndex,
+            kind: "plan",
+            intent: `Plan: ${checks.length} checks`,
+            toolName: "plan",
+            toolArgs: { checks },
+          });
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: `Plan accepted (${checks.length} checks):\n${checks.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\nNow execute the plan. You must perform at least ${MIN_SUBSTANTIVE_CALLS} substantive tool calls before asserting.`,
+          });
+          continue;
+        }
+
+        // 2. Assertion tools — gated by plan + minimum substantive calls.
         if (name === "assertPass" || name === "assertFail") {
+          if (!planSubmitted) {
+            messages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              content: "Error: you must call plan() before any assertion. Submit your test plan first.",
+            });
+            continue;
+          }
+          if (name === "assertPass" && substantiveCalls < MIN_SUBSTANTIVE_CALLS) {
+            messages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              content: `Error: assertPass rejected — only ${substantiveCalls} substantive tool calls so far, need at least ${MIN_SUBSTANTIVE_CALLS}. Continue investigating: try evaluate(), getAccessibility(), interact with the page, or check more elements.`,
+            });
+            continue;
+          }
           const reason = String(parsedArgs.reason ?? "(no reason given)");
           stepIndex += 1;
           await persistStep({
@@ -151,11 +228,20 @@ export async function runAgentLoop(
           return await finish(status, reason, iter + 1);
         }
 
+        // 3. Browser tools — require plan first.
         if (!BROWSER_TOOL_NAMES.has(name)) {
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
-            content: `Error: unknown tool "${name}". Use one of: navigate, click, type, wait, screenshot, getDom, assertPass, assertFail.`,
+            content: `Error: unknown tool "${name}". Available: plan, navigate, click, type, wait, screenshot, getDom, evaluate, getAccessibility, setViewport, assertPass, assertFail.`,
+          });
+          continue;
+        }
+        if (!planSubmitted) {
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: `Error: you must call plan() with your test checks before using browser tools.`,
           });
           continue;
         }
@@ -165,6 +251,7 @@ export async function runAgentLoop(
           args: parsedArgs,
         });
 
+        substantiveCalls += 1;
         stepIndex += 1;
         await persistStep({
           runId: input.runId,
@@ -223,13 +310,23 @@ export async function runAgentLoop(
  * screenshots are still saved to storage for the run viewer.
  */
 function formatToolResult(obs: Observation): string {
+  const failedRequests = (obs.networkLog ?? []).filter((n) => n.failed);
   return [
     obs.ok ? "ok" : `error: ${obs.error ?? "unknown"}`,
     obs.url ? `url: ${obs.url}` : null,
-    obs.screenshotPath ? `screenshot saved: ${obs.screenshotPath}` : null,
+    obs.viewport ? `viewport: ${obs.viewport.width}x${obs.viewport.height}` : null,
+    obs.evaluateResult !== undefined
+      ? `evaluate result:\n${typeof obs.evaluateResult === "string" ? obs.evaluateResult : JSON.stringify(obs.evaluateResult, null, 2)}`
+      : null,
+    obs.accessibilitySnippet
+      ? `accessibility tree (truncated):\n${obs.accessibilitySnippet}`
+      : null,
     obs.domSnippet ? `dom (truncated):\n${obs.domSnippet.slice(0, 4000)}` : null,
     obs.consoleLog && obs.consoleLog.length > 0
       ? `console (last 10):\n${obs.consoleLog.slice(-10).join("\n")}`
+      : null,
+    failedRequests.length > 0
+      ? `failed network requests (${failedRequests.length}):\n${failedRequests.slice(-10).map((n) => `  ${n.method ?? ""} ${n.url} ${n.status ?? "FAILED"}`).join("\n")}`
       : null,
   ]
     .filter(Boolean)

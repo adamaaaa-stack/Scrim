@@ -6,7 +6,7 @@ export type DbRunStatus = "queued" | "running" | "passed" | "failed" | "errored"
 export interface PersistStepInput {
   runId: string;
   index: number;
-  kind: ToolName | "assertPass" | "assertFail";
+  kind: ToolName | "assertPass" | "assertFail" | "plan";
   intent: string;
   toolName: string;
   toolArgs: Record<string, unknown>;
@@ -69,6 +69,7 @@ export async function persistStep(input: PersistStepInput): Promise<void> {
     screenshot_path: input.observation?.screenshotPath ?? null,
     dom_snapshot: input.observation?.domSnippet ?? null,
     console_log: input.observation?.consoleLog ?? null,
+    network_log: input.observation?.networkLog ?? null,
     judgment_pass: input.judgmentPass ?? null,
     judgment_reason: input.judgmentReason ?? null,
   });
@@ -82,5 +83,6 @@ function dbKindFor(kind: PersistStepInput["kind"]): string {
   }
   if (kind === "getDom") return "assert"; // closest enum match
   if (kind === "assertPass" || kind === "assertFail") return "assert";
+  // plan, evaluate, getAccessibility, setViewport, custom → "custom"
   return "custom";
 }

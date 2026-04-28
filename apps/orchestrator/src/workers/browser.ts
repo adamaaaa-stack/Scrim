@@ -26,6 +26,18 @@ export const GetDomArgs = z.object({
   selector: z.string().optional(),
   maxChars: z.number().int().positive().max(50000).default(8000),
 });
+export const EvaluateArgs = z.object({
+  expression: z.string().min(1),
+  description: z.string().optional(),
+});
+export const GetAccessibilityArgs = z.object({
+  selector: z.string().default("body"),
+});
+export const SetViewportArgs = z.object({
+  width: z.number().int().min(320).max(3840),
+  height: z.number().int().min(240).max(2160),
+  preset: z.enum(["iphone", "ipad", "desktop"]).optional(),
+});
 
 export type ToolName =
   | "navigate"
@@ -33,11 +45,23 @@ export type ToolName =
   | "type"
   | "wait"
   | "screenshot"
-  | "getDom";
+  | "getDom"
+  | "evaluate"
+  | "getAccessibility"
+  | "setViewport";
 
 export interface ToolCall {
   name: ToolName;
   args: Record<string, unknown>;
+}
+
+export interface NetworkEntry {
+  ts: number;
+  method?: string;
+  status?: number;
+  url: string;
+  resourceType?: string;
+  failed?: boolean;
 }
 
 export interface Observation {
@@ -45,8 +69,12 @@ export interface Observation {
   screenshotPath?: string;
   domSnippet?: string;
   consoleLog?: string[];
+  networkLog?: NetworkEntry[];
   url?: string;
   error?: string;
+  evaluateResult?: unknown;
+  accessibilitySnippet?: string;
+  viewport?: { width: number; height: number };
 }
 
 // ============================================================
@@ -59,20 +87,28 @@ export interface BrowserWorkerOptions {
   viewport?: { width: number; height: number };
 }
 
+const VIEWPORT_PRESETS = {
+  iphone: { width: 390, height: 844 },
+  ipad: { width: 1024, height: 1366 },
+  desktop: { width: 1280, height: 800 },
+} as const;
+
 export class BrowserWorker {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private stepIndex = 0;
   private consoleBuffer: string[] = [];
+  private networkBuffer: NetworkEntry[] = [];
+  private viewport: { width: number; height: number };
 
-  constructor(private opts: BrowserWorkerOptions) {}
+  constructor(private opts: BrowserWorkerOptions) {
+    this.viewport = opts.viewport ?? VIEWPORT_PRESETS.desktop;
+  }
 
   async start(): Promise<void> {
     this.browser = await chromium.launch({ headless: this.opts.headless ?? true });
-    this.context = await this.browser.newContext({
-      viewport: this.opts.viewport ?? { width: 1280, height: 800 },
-    });
+    this.context = await this.browser.newContext({ viewport: this.viewport });
     this.page = await this.context.newPage();
 
     this.page.on("console", (msg) => {
@@ -82,6 +118,36 @@ export class BrowserWorker {
 
     this.page.on("pageerror", (err) => {
       this.consoleBuffer.push(`[pageerror] ${err.message}`);
+    });
+
+    this.page.on("request", (req) => {
+      this.networkBuffer.push({
+        ts: Date.now(),
+        method: req.method(),
+        url: req.url(),
+        resourceType: req.resourceType(),
+      });
+      if (this.networkBuffer.length > 500) this.networkBuffer.shift();
+    });
+
+    this.page.on("response", (res) => {
+      this.networkBuffer.push({
+        ts: Date.now(),
+        status: res.status(),
+        url: res.url(),
+        failed: res.status() >= 400,
+      });
+      if (this.networkBuffer.length > 500) this.networkBuffer.shift();
+    });
+
+    this.page.on("requestfailed", (req) => {
+      this.networkBuffer.push({
+        ts: Date.now(),
+        method: req.method(),
+        url: req.url(),
+        failed: true,
+      });
+      if (this.networkBuffer.length > 500) this.networkBuffer.shift();
     });
 
     logger.info({ runId: this.opts.runId }, "browser worker started");
@@ -141,7 +207,32 @@ export class BrowserWorker {
             url: this.page.url(),
             domSnippet: html.slice(0, maxChars),
             consoleLog: [...this.consoleBuffer],
+            networkLog: this.recentNetwork(),
           };
+        }
+        case "evaluate": {
+          const { expression } = EvaluateArgs.parse(call.args);
+          // page.evaluate accepts a string expression or function — we accept
+          // a plain JS expression that will be wrapped and executed.
+          const result = await this.page.evaluate(
+            new Function(`return (async () => { return (${expression}); })();`) as () => Promise<unknown>,
+          );
+          const obs = await this.snapshot();
+          return { ...obs, evaluateResult: serializeForLLM(result) };
+        }
+        case "getAccessibility": {
+          const { selector } = GetAccessibilityArgs.parse(call.args);
+          const snapshot = await this.page.locator(selector).ariaSnapshot();
+          const obs = await this.snapshot();
+          return { ...obs, accessibilitySnippet: snapshot.slice(0, 8000) };
+        }
+        case "setViewport": {
+          const args = SetViewportArgs.parse(call.args);
+          const size = args.preset ? VIEWPORT_PRESETS[args.preset] : { width: args.width, height: args.height };
+          await this.page.setViewportSize(size);
+          this.viewport = size;
+          const obs = await this.snapshot();
+          return { ...obs, viewport: size };
         }
         default: {
           const _exhaustive: never = call.name;
@@ -156,7 +247,7 @@ export class BrowserWorker {
     }
   }
 
-  /** Capture screenshot + small DOM excerpt + console for the LLM to observe. */
+  /** Capture screenshot + small DOM excerpt + console + network for the LLM to observe. */
   private async snapshot(opts: { fullPage?: boolean } = {}): Promise<Observation> {
     if (!this.page) throw new Error("Page closed");
     const buffer = await this.page.screenshot({
@@ -175,7 +266,25 @@ export class BrowserWorker {
       screenshotPath,
       domSnippet: html.slice(0, 8000),
       consoleLog: [...this.consoleBuffer],
+      networkLog: this.recentNetwork(),
+      viewport: this.viewport,
     };
+  }
+
+  /** Last 30 network entries — enough for the agent to reason about, small enough for tokens. */
+  private recentNetwork(): NetworkEntry[] {
+    return this.networkBuffer.slice(-30);
+  }
+}
+
+/** Make page.evaluate results LLM-safe (truncate, strip non-JSON). */
+function serializeForLLM(value: unknown): unknown {
+  try {
+    const json = JSON.stringify(value);
+    if (json.length > 4000) return JSON.parse(json.slice(0, 4000) + '"...[truncated]"');
+    return value;
+  } catch {
+    return String(value).slice(0, 4000);
   }
 }
 
@@ -265,6 +374,52 @@ export const BROWSER_TOOLS = [
         properties: {
           selector: { type: "string" },
           maxChars: { type: "integer", description: "Truncate to this many chars" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "evaluate",
+      description:
+        "Run a JavaScript expression in the page context and return its value. Use for programmatic checks like \"document.images.length\", \"performance.timing.loadEventEnd - performance.timing.navigationStart\", or \"Array.from(document.querySelectorAll('img')).every(i => i.complete && i.naturalHeight > 0)\". Result is JSON-serialized.",
+      parameters: {
+        type: "object",
+        properties: {
+          expression: { type: "string", description: "JS expression (await is allowed)" },
+          description: { type: "string", description: "What this check is verifying" },
+        },
+        required: ["expression"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "getAccessibility",
+      description:
+        "Get the page's aria snapshot (semantic YAML tree of roles, names, landmarks, headings, interactive elements). Better than raw DOM for understanding navigation. Default selector is 'body' for the whole page.",
+      parameters: {
+        type: "object",
+        properties: {
+          selector: { type: "string", description: "Locator (default 'body')" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "setViewport",
+      description:
+        "Resize the browser viewport. Use a preset (iphone, ipad, desktop) for responsive checks, or pass explicit width/height.",
+      parameters: {
+        type: "object",
+        properties: {
+          preset: { type: "string", enum: ["iphone", "ipad", "desktop"] },
+          width: { type: "integer" },
+          height: { type: "integer" },
         },
       },
     },
