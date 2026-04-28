@@ -39,6 +39,8 @@ interface RunRow {
   project_id: string;
   trace_path: string | null;
   device_preset: string | null;
+  github_issue_url: string | null;
+  github_issue_number: number | null;
   projects: { name: string; target_url: string; device_preset: string | null } | null;
 }
 
@@ -62,7 +64,7 @@ export default async function RunPage({
     sb
       .from("runs")
       .select(
-        "id, status, prompt, model, error, started_at, completed_at, project_id, trace_path, device_preset, projects(name, target_url, device_preset)",
+        "id, status, prompt, model, error, started_at, completed_at, project_id, trace_path, device_preset, github_issue_url, github_issue_number, projects(name, target_url, device_preset)",
       )
       .eq("id", id)
       .single(),
@@ -163,6 +165,19 @@ export default async function RunPage({
                 className="font-medium text-[var(--color-coral-500)] hover:underline"
               >
                 Open trace ↗
+              </a>
+            </>
+          )}
+          {run.github_issue_url && (
+            <>
+              <span>·</span>
+              <a
+                href={run.github_issue_url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-[var(--color-coral-500)] hover:underline"
+              >
+                Issue #{run.github_issue_number} ↗
               </a>
             </>
           )}

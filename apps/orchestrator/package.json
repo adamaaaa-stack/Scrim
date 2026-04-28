@@ -13,6 +13,7 @@
   "dependencies": {
     "@ai-testing/shared": "workspace:*",
     "@hono/node-server": "^1.13.7",
+    "@octokit/rest": "^21.0.2",
     "@supabase/supabase-js": "^2.47.0",
     "hono": "^4.6.14",
     "pg-boss": "^10.1.6",

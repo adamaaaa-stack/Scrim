@@ -70,6 +70,7 @@ export function buildServer() {
     // Fire and forget — caller polls /runs/:id for status.
     runAgentLoop(llm, {
       runId,
+      projectId,
       prompt,
       context,
       targetUrl: project.target_url,

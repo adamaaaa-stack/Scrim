@@ -13,6 +13,7 @@ import {
 } from "../workers/browser.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { persistStep, updateRun } from "./persistence.js";
+import { reportFailureToGithub } from "../integrations/github.js";
 import { logger } from "../logger.js";
 
 const MAX_ITERATIONS = 30;
@@ -83,6 +84,7 @@ const ASSERTION_TOOLS: ToolDef[] = [
 
 export interface AgentLoopInput {
   runId: string;
+  projectId: string;
   prompt: string;
   context: string;
   targetUrl: string;
@@ -128,6 +130,14 @@ export async function runAgentLoop(
   let stepIndex = 0;
   let substantiveCalls = 0;
   let planSubmitted = false;
+  // Track the most recent step with a screenshot so we can attach it to a
+  // failure issue if the run ends in assertFail.
+  let lastScreenshotStep: {
+    index: number;
+    toolName: string;
+    intent: string;
+    screenshotPath: string | null;
+  } | null = null;
 
   try {
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -270,6 +280,15 @@ export async function runAgentLoop(
           observation: obs,
         });
 
+        if (obs.screenshotPath) {
+          lastScreenshotStep = {
+            index: stepIndex,
+            toolName: name,
+            intent: String(parsedArgs.description ?? name),
+            screenshotPath: obs.screenshotPath,
+          };
+        }
+
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -299,6 +318,40 @@ export async function runAgentLoop(
     }
   }
 
+  async function maybeFileFailureIssue(reason: string): Promise<void> {
+    try {
+      const tracePath = worker.getTracePath();
+      const result = await reportFailureToGithub({
+        runId: input.runId,
+        projectId: input.projectId,
+        prompt: input.prompt,
+        reason,
+        failedStep: lastScreenshotStep
+          ? {
+              index: lastScreenshotStep.index,
+              toolName: lastScreenshotStep.toolName,
+              intent: lastScreenshotStep.intent,
+            }
+          : { index: stepIndex, toolName: "assertFail", intent: reason },
+        screenshotPath: lastScreenshotStep?.screenshotPath ?? null,
+        tracePath,
+        devicePreset,
+      });
+      if (result) {
+        await updateRun(input.runId, {
+          githubIssueUrl: result.issueUrl,
+          githubIssueNumber: result.issueNumber,
+        });
+        logger.info(
+          { runId: input.runId, issue: result },
+          result.isComment ? "github: commented on existing issue" : "github: filed new issue",
+        );
+      }
+    } catch (err) {
+      logger.warn({ err, runId: input.runId }, "github issue filing failed");
+    }
+  }
+
   async function finish(
     status: AgentLoopResult["status"],
     reasonOrError: string,
@@ -309,6 +362,9 @@ export async function runAgentLoop(
       completedAt: new Date(),
       ...(status === "errored" ? { error: reasonOrError } : { error: null }),
     });
+    if (status === "failed") {
+      await maybeFileFailureIssue(reasonOrError);
+    }
     return {
       status,
       iterations,

@@ -45,6 +45,8 @@ export async function updateRun(
     completedAt?: Date;
     tracePath?: string | null;
     devicePreset?: string | null;
+    githubIssueUrl?: string | null;
+    githubIssueNumber?: number | null;
   },
 ): Promise<void> {
   const sb = supabaseAdmin();
@@ -56,6 +58,8 @@ export async function updateRun(
       ...(patch.completedAt ? { completed_at: patch.completedAt.toISOString() } : {}),
       ...(patch.tracePath !== undefined ? { trace_path: patch.tracePath } : {}),
       ...(patch.devicePreset !== undefined ? { device_preset: patch.devicePreset } : {}),
+      ...(patch.githubIssueUrl !== undefined ? { github_issue_url: patch.githubIssueUrl } : {}),
+      ...(patch.githubIssueNumber !== undefined ? { github_issue_number: patch.githubIssueNumber } : {}),
     })
     .eq("id", runId);
   if (error) throw new Error(`updateRun failed: ${error.message}`);
