@@ -57,7 +57,7 @@ export interface OpenRouterConfig {
 }
 
 export function createOpenRouterClient(config: OpenRouterConfig) {
-  const defaultModel = config.defaultModel ?? "x-ai/grok-4-fast";
+  const defaultModel = config.defaultModel ?? "x-ai/grok-4.1-fast";
 
   return {
     async chat(req: ChatCompletionRequest): Promise<ChatCompletionResponse> {
