@@ -28,6 +28,7 @@ const BROWSER_TOOL_NAMES: ReadonlySet<string> = new Set([
   "evaluate",
   "getAccessibility",
   "setViewport",
+  "signIn",
 ]);
 
 const PLANNING_TOOLS: ToolDef[] = [
@@ -116,6 +117,7 @@ export async function runAgentLoop(
 
   const worker = new BrowserWorker({
     runId: input.runId,
+    projectId: input.projectId,
     devicePreset,
     recordTrace: true,
   });

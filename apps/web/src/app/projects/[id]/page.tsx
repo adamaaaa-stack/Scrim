@@ -5,6 +5,7 @@ import { ButtonLink } from "@/components/Button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { loadGithubIntegration } from "@/lib/github";
 import { ContextForm } from "./ContextForm";
+import { CredentialsSection } from "./CredentialsSection";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,14 @@ interface ContextRow {
   created_at: string;
 }
 
+interface CredentialRow {
+  id: string;
+  name: string;
+  description: string | null;
+  fields: Record<string, string>;
+  created_at: string;
+}
+
 interface RunRow {
   id: string;
   status: string;
@@ -42,30 +51,37 @@ export default async function ProjectDetailPage({
   const { id } = await params;
   const sb = supabaseAdmin();
 
-  const [{ data: project }, { data: contexts }, { data: runs }, github] = await Promise.all([
-    sb
-      .from("projects")
-      .select("id, name, target_url, description, device_preset, created_at")
-      .eq("id", id)
-      .single(),
-    sb
-      .from("contexts")
-      .select("id, kind, title, body, created_at")
-      .eq("project_id", id)
-      .order("created_at", { ascending: false }),
-    sb
-      .from("runs")
-      .select("id, status, prompt, started_at, completed_at, device_preset")
-      .eq("project_id", id)
-      .order("started_at", { ascending: false })
-      .limit(10),
-    loadGithubIntegration(id),
-  ]);
+  const [{ data: project }, { data: contexts }, { data: runs }, github, { data: creds }] =
+    await Promise.all([
+      sb
+        .from("projects")
+        .select("id, name, target_url, description, device_preset, created_at")
+        .eq("id", id)
+        .single(),
+      sb
+        .from("contexts")
+        .select("id, kind, title, body, created_at")
+        .eq("project_id", id)
+        .order("created_at", { ascending: false }),
+      sb
+        .from("runs")
+        .select("id, status, prompt, started_at, completed_at, device_preset")
+        .eq("project_id", id)
+        .order("started_at", { ascending: false })
+        .limit(10),
+      loadGithubIntegration(id),
+      sb
+        .from("credentials")
+        .select("id, name, description, fields, created_at")
+        .eq("project_id", id)
+        .order("created_at", { ascending: false }),
+    ]);
 
   if (!project) notFound();
   const p = project as ProjectRow;
   const ctxs = (contexts ?? []) as ContextRow[];
   const rs = (runs ?? []) as RunRow[];
+  const credentialsList = (creds ?? []) as CredentialRow[];
 
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-6 py-12">
@@ -206,6 +222,8 @@ export default async function ProjectDetailPage({
               </ul>
             )}
           </div>
+
+          <CredentialsSection projectId={p.id} credentials={credentialsList} />
 
           <div>
             <h2 className="mb-4 font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">

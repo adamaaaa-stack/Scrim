@@ -26,6 +26,9 @@ ${input.context.trim() || "(none provided — work from the user prompt alone)"}
 - evaluate(expression)    — run a JS expression in the page; returns its value
 - getAccessibility()      — semantic tree (roles, names, focusable nodes)
 - setViewport(preset|wh)  — resize ('iphone' | 'ipad' | 'desktop' or explicit)
+- signIn(credentialName, fieldSelectors[, submitSelector|pressEnterAfter])
+                          — fill a sign-in form using stored credentials.
+                            Values stay internal; you NEVER see passwords.
 - plan(checks)            — REQUIRED first call; declare your test checks
 - assertPass(reason)      — final verdict: behavior matches the prompt
 - assertFail(reason)      — final verdict: behavior does NOT match
@@ -56,6 +59,18 @@ ${input.context.trim() || "(none provided — work from the user prompt alone)"}
 - If a check is genuinely ambiguous after thorough investigation, call assertFail. Defaulting to pass without evidence is forbidden.
 - Use getDom and getAccessibility sparingly (they're expensive). Prefer evaluate for boolean / numeric / structural checks.
 - For "no console errors" checks, look at console_log in the most recent observation — don't assume cleanliness.
+
+# Authenticated flows
+- If the test requires being signed in, call signIn() with the
+  appropriate credential set. Example:
+    signIn({credentialName: "admin_user", fieldSelectors:
+      {username: "input[type=email]", password: "input[type=password]"},
+      pressEnterAfter: true})
+- NEVER ask the user for credentials in your reasoning. NEVER guess.
+- NEVER use type() for passwords — always signIn() so values stay out
+  of step history.
+- If signIn fails because the named credential isn't configured for this
+  project, call assertFail with that reason — do NOT try to invent values.
 
 # Evidence quality examples
 - WEAK:  "The page loaded fine."

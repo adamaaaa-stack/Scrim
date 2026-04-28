@@ -5,6 +5,7 @@ import { chromium, devices, type Browser, type BrowserContext, type Page } from 
 import { z } from "zod";
 import { uploadScreenshot } from "../storage/screenshots.js";
 import { uploadTrace } from "../storage/traces.js";
+import { supabaseAdmin } from "../db/supabase.js";
 import { logger } from "../logger.js";
 
 export type DevicePreset = "desktop" | "iphone" | "ipad" | "android";
@@ -57,6 +58,16 @@ export const SetViewportArgs = z
     { message: "Provide either preset or both width and height" },
   );
 
+export const SignInArgs = z.object({
+  credentialName: z.string().min(1),
+  fieldSelectors: z.record(z.string(), z.string()).refine(
+    (m) => Object.keys(m).length > 0,
+    "fieldSelectors must include at least one field",
+  ),
+  submitSelector: z.string().optional(),
+  pressEnterAfter: z.boolean().default(false),
+});
+
 export type ToolName =
   | "navigate"
   | "click"
@@ -66,7 +77,8 @@ export type ToolName =
   | "getDom"
   | "evaluate"
   | "getAccessibility"
-  | "setViewport";
+  | "setViewport"
+  | "signIn";
 
 export interface ToolCall {
   name: ToolName;
@@ -101,6 +113,7 @@ export interface Observation {
 
 export interface BrowserWorkerOptions {
   runId: string;
+  projectId: string;
   headless?: boolean;
   viewport?: { width: number; height: number };
   devicePreset?: DevicePreset;
@@ -298,6 +311,41 @@ export class BrowserWorker {
           const obs = await this.snapshot();
           return { ...obs, viewport: size };
         }
+        case "signIn": {
+          const args = SignInArgs.parse(call.args);
+          const fields = await loadCredentialFields(
+            this.opts.projectId,
+            args.credentialName,
+          );
+          if (!fields) {
+            return {
+              ok: false,
+              error: `Credential '${args.credentialName}' not found for this project. Save one in the project settings first.`,
+            };
+          }
+          // Fill each (credentialField -> selector) pair using stored values.
+          const orderedSelectors: string[] = [];
+          for (const [fieldName, selector] of Object.entries(args.fieldSelectors)) {
+            const value = fields[fieldName];
+            if (value === undefined) {
+              return {
+                ok: false,
+                error: `Credential '${args.credentialName}' has no field '${fieldName}'. Available fields: ${Object.keys(fields).join(", ")}`,
+              };
+            }
+            await this.page.fill(selector, value, { timeout: 10000 });
+            orderedSelectors.push(selector);
+          }
+          if (args.submitSelector) {
+            await this.page.click(args.submitSelector, { timeout: 10000 });
+          } else if (args.pressEnterAfter && orderedSelectors.length > 0) {
+            const last = orderedSelectors[orderedSelectors.length - 1]!;
+            await this.page.press(last, "Enter");
+          }
+          // Wait for any navigation triggered by submit, then snapshot.
+          await this.page.waitForLoadState("domcontentloaded", { timeout: 15000 }).catch(() => {});
+          return await this.snapshot();
+        }
         default: {
           const _exhaustive: never = call.name;
           return { ok: false, error: `Unknown tool: ${_exhaustive}` };
@@ -362,6 +410,30 @@ function decodeHtmlEntities(s: string): string {
     .replace(/&#39;/g, "'")
     .replace(/&apos;/g, "'")
     .replace(/&nbsp;/g, " ");
+}
+
+/**
+ * Look up a stored credential set by name for the given project.
+ * Returns the field map ({username, password, ...}) or null if not found.
+ * Never logs the values — only the lookup attempt.
+ */
+async function loadCredentialFields(
+  projectId: string,
+  name: string,
+): Promise<Record<string, string> | null> {
+  const sb = supabaseAdmin();
+  const { data, error } = await sb
+    .from("credentials")
+    .select("fields")
+    .eq("project_id", projectId)
+    .eq("name", name)
+    .maybeSingle();
+  if (error) {
+    logger.warn({ err: error.message, projectId, name }, "credential lookup failed");
+    return null;
+  }
+  if (!data?.fields) return null;
+  return data.fields as Record<string, string>;
 }
 
 // ============================================================
@@ -497,6 +569,35 @@ export const BROWSER_TOOLS = [
           width: { type: "integer" },
           height: { type: "integer" },
         },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "signIn",
+      description:
+        "Sign into an authenticated app using a stored credential set. The values are filled internally — they NEVER appear in step history or your reasoning. Provide the credential name (e.g. 'admin_user') and a map of credential field names to CSS selectors. Optionally pass submitSelector (selector to click after filling) or pressEnterAfter:true to submit.",
+      parameters: {
+        type: "object",
+        properties: {
+          credentialName: {
+            type: "string",
+            description: "Name of the stored credential set (configured in project settings)",
+          },
+          fieldSelectors: {
+            type: "object",
+            description:
+              "Map of credential field name -> CSS selector. Example: {\"username\": \"#email\", \"password\": \"#password\"}",
+            additionalProperties: { type: "string" },
+          },
+          submitSelector: { type: "string", description: "Optional selector to click after filling" },
+          pressEnterAfter: {
+            type: "boolean",
+            description: "Press Enter on the last filled field instead of clicking a submit selector",
+          },
+        },
+        required: ["credentialName", "fieldSelectors"],
       },
     },
   },
