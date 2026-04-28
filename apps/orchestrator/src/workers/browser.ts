@@ -60,10 +60,14 @@ export const SetViewportArgs = z
 
 export const SignInArgs = z.object({
   credentialName: z.string().min(1),
-  fieldSelectors: z.record(z.string(), z.string()).refine(
-    (m) => Object.keys(m).length > 0,
-    "fieldSelectors must include at least one field",
-  ),
+  fields: z
+    .array(
+      z.object({
+        credentialField: z.string().min(1),
+        selector: z.string().min(1),
+      }),
+    )
+    .min(1, "fields must include at least one entry"),
   submitSelector: z.string().optional(),
   pressEnterAfter: z.boolean().default(false),
 });
@@ -318,24 +322,23 @@ export class BrowserWorker {
         }
         case "signIn": {
           const args = SignInArgs.parse(call.args);
-          const fields = await loadCredentialFields(
+          const credFields = await loadCredentialFields(
             this.opts.projectId,
             args.credentialName,
           );
-          if (!fields) {
+          if (!credFields) {
             return {
               ok: false,
               error: `Credential '${args.credentialName}' not found for this project. Save one in the project settings first.`,
             };
           }
-          // Fill each (credentialField -> selector) pair using stored values.
           const orderedSelectors: string[] = [];
-          for (const [fieldName, selector] of Object.entries(args.fieldSelectors)) {
-            const value = fields[fieldName];
+          for (const { credentialField, selector } of args.fields) {
+            const value = credFields[credentialField];
             if (value === undefined) {
               return {
                 ok: false,
-                error: `Credential '${args.credentialName}' has no field '${fieldName}'. Available fields: ${Object.keys(fields).join(", ")}`,
+                error: `Credential '${args.credentialName}' has no field '${credentialField}'. Available fields: ${Object.keys(credFields).join(", ")}`,
               };
             }
             await this.page.fill(selector, value, { timeout: 10000 });
@@ -582,7 +585,7 @@ export const BROWSER_TOOLS = [
     function: {
       name: "signIn",
       description:
-        "Sign into an authenticated app using a stored credential set. The values are filled internally — they NEVER appear in step history or your reasoning. Provide the credential name (e.g. 'admin_user') and a map of credential field names to CSS selectors. Optionally pass submitSelector (selector to click after filling) or pressEnterAfter:true to submit.",
+        "Sign into an authenticated app using a stored credential set. Values are filled internally and NEVER appear in step history or your reasoning. Provide credentialName plus an array of {credentialField, selector} pairs — one entry per form field to fill. Then optionally submit via submitSelector or pressEnterAfter.",
       parameters: {
         type: "object",
         properties: {
@@ -590,19 +593,36 @@ export const BROWSER_TOOLS = [
             type: "string",
             description: "Name of the stored credential set (configured in project settings)",
           },
-          fieldSelectors: {
-            type: "object",
+          fields: {
+            type: "array",
             description:
-              "Map of credential field name -> CSS selector. Example: {\"username\": \"#email\", \"password\": \"#password\"}",
-            additionalProperties: { type: "string" },
+              "One entry per form field. credentialField is the name in the stored credential (e.g. 'username', 'password'); selector is the CSS selector to type that value into.",
+            items: {
+              type: "object",
+              properties: {
+                credentialField: {
+                  type: "string",
+                  description: "Field name from the stored credential, e.g. 'username' or 'password'",
+                },
+                selector: {
+                  type: "string",
+                  description: "CSS selector for the input element to fill",
+                },
+              },
+              required: ["credentialField", "selector"],
+            },
+            minItems: 1,
           },
-          submitSelector: { type: "string", description: "Optional selector to click after filling" },
+          submitSelector: {
+            type: "string",
+            description: "Optional selector to click after filling all fields",
+          },
           pressEnterAfter: {
             type: "boolean",
             description: "Press Enter on the last filled field instead of clicking a submit selector",
           },
         },
-        required: ["credentialName", "fieldSelectors"],
+        required: ["credentialName", "fields"],
       },
     },
   },

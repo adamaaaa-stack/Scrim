@@ -34,9 +34,11 @@ ${input.context.trim() || "(none provided — work from the user prompt alone)"}
                             images: document.images.length}\`
 - getAccessibility()      — semantic tree (roles, names, focusable nodes)
 - setViewport(preset|wh)  — resize ('iphone' | 'ipad' | 'desktop' or explicit)
-- signIn(credentialName, fieldSelectors[, submitSelector|pressEnterAfter])
+- signIn(credentialName, fields[, submitSelector|pressEnterAfter])
                           — fill a sign-in form using stored credentials.
-                            Values stay internal; you NEVER see passwords.
+                            \`fields\` is an ARRAY of {credentialField,
+                            selector} entries — one per form input. Values
+                            stay internal; you NEVER see passwords.
 - plan(checks)            — REQUIRED first call; declare your test checks
 - assertPass(reason)      — final verdict: behavior matches the prompt
 - assertFail(reason)      — final verdict: behavior does NOT match
@@ -71,9 +73,18 @@ ${input.context.trim() || "(none provided — work from the user prompt alone)"}
 # Authenticated flows
 - If the test requires being signed in, call signIn() with the
   appropriate credential set. Example:
-    signIn({credentialName: "admin_user", fieldSelectors:
-      {username: "input[type=email]", password: "input[type=password]"},
-      pressEnterAfter: true})
+    signIn({
+      credentialName: "admin_user",
+      fields: [
+        {credentialField: "username", selector: "input[type=email]"},
+        {credentialField: "password", selector: "input[type=password]"}
+      ],
+      pressEnterAfter: true
+    })
+- The 'fields' parameter MUST be a non-empty array. Each entry maps one
+  credential field name to one CSS selector. Common credential field
+  names: 'username', 'email', 'password'. Inspect the page first
+  (getDom or evaluate) to find the right selectors.
 - NEVER ask the user for credentials in your reasoning. NEVER guess.
 - NEVER use type() for passwords — always signIn() so values stay out
   of step history.
