@@ -268,10 +268,12 @@ export class BrowserWorker {
         }
         case "evaluate": {
           const { expression } = EvaluateArgs.parse(call.args);
-          // page.evaluate accepts a string expression or function — we accept
-          // a plain JS expression that will be wrapped and executed.
+          // Grok sometimes HTML-encodes JS in tool args (&amp;&amp; for &&,
+          // &gt; for >, etc). Decode common entities before evaluating so
+          // these calls don't waste tokens on syntax errors.
+          const decoded = decodeHtmlEntities(expression);
           const result = await this.page.evaluate(
-            new Function(`return (async () => { return (${expression}); })();`) as () => Promise<unknown>,
+            new Function(`return (async () => { return (${decoded}); })();`) as () => Promise<unknown>,
           );
           const obs = await this.snapshot();
           return { ...obs, evaluateResult: serializeForLLM(result) };
@@ -348,6 +350,18 @@ function serializeForLLM(value: unknown): unknown {
   } catch {
     return String(value).slice(0, 4000);
   }
+}
+
+/** Decode the most common HTML entities Grok sometimes emits in tool args. */
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ");
 }
 
 // ============================================================
