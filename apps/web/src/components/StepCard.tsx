@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { JudgmentView } from "./JudgmentView";
 
 interface NetworkEntry {
   ts: number;
@@ -156,17 +157,20 @@ export function StepCard({ step }: { step: Step }) {
             </div>
           </div>
 
-          <p
-            className={`mt-2 text-[15px] leading-snug ${
-              isAssert ? "font-serif text-lg text-[var(--color-ink-900)]" : "text-[var(--color-ink-700)]"
-            }`}
-          >
-            {isAssert && step.judgment_reason
-              ? step.judgment_reason
-              : isPlan
+          {isAssert && step.judgment_reason ? (
+            <div className="mt-3">
+              <JudgmentView
+                text={step.judgment_reason}
+                tone={isPass ? "pass" : "fail"}
+              />
+            </div>
+          ) : (
+            <p className="mt-2 text-[15px] leading-snug text-[var(--color-ink-700)]">
+              {isPlan
                 ? `${planChecks.length} checks declared`
                 : step.intent}
-          </p>
+            </p>
+          )}
 
           {/* Plan: render checklist */}
           {planChecks.length > 0 ? <PlanChecklist checks={planChecks} /> : null}

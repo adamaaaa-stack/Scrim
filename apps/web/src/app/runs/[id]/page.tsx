@@ -8,6 +8,7 @@ import {
 import { StatusBadge } from "@/components/StatusBadge";
 import { StepCard } from "@/components/StepCard";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { JudgmentView } from "@/components/JudgmentView";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -197,13 +198,29 @@ export default async function RunPage({
       </section>
 
       {finalAssertion && (
-        <footer className="mt-4 rounded-2xl border border-[var(--color-cream-200)] bg-white p-6">
-          <p className="font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
-            Verdict
+        <footer
+          className={`mt-4 rounded-2xl border bg-white p-6 ${
+            finalAssertion.tool_name === "assertPass"
+              ? "border-[var(--color-sage-500)]"
+              : "border-[var(--color-rust-500)]"
+          }`}
+        >
+          <p className="mb-4 font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+            Verdict ·{" "}
+            <span
+              className={
+                finalAssertion.tool_name === "assertPass"
+                  ? "text-[var(--color-sage-700)]"
+                  : "text-[var(--color-rust-600)]"
+              }
+            >
+              {finalAssertion.tool_name === "assertPass" ? "Passed" : "Failed"}
+            </span>
           </p>
-          <p className="mt-2 font-serif text-xl leading-snug text-[var(--color-ink-900)]">
-            {finalAssertion.judgment_reason ?? finalAssertion.intent}
-          </p>
+          <JudgmentView
+            text={finalAssertion.judgment_reason ?? finalAssertion.intent}
+            tone={finalAssertion.tool_name === "assertPass" ? "pass" : "fail"}
+          />
         </footer>
       )}
     </main>
