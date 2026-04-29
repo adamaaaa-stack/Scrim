@@ -47,6 +47,7 @@ export async function updateRun(
     devicePreset?: string | null;
     githubIssueUrl?: string | null;
     githubIssueNumber?: number | null;
+    sentryErrors?: unknown;
   },
 ): Promise<void> {
   const sb = supabaseAdmin();
@@ -60,6 +61,7 @@ export async function updateRun(
       ...(patch.devicePreset !== undefined ? { device_preset: patch.devicePreset } : {}),
       ...(patch.githubIssueUrl !== undefined ? { github_issue_url: patch.githubIssueUrl } : {}),
       ...(patch.githubIssueNumber !== undefined ? { github_issue_number: patch.githubIssueNumber } : {}),
+      ...(patch.sentryErrors !== undefined ? { sentry_errors: patch.sentryErrors } : {}),
     })
     .eq("id", runId);
   if (error) throw new Error(`updateRun failed: ${error.message}`);

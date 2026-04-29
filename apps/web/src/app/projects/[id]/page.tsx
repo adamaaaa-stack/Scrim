@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { ButtonLink } from "@/components/Button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { loadGithubIntegration } from "@/lib/github";
+import { loadSentryIntegration } from "@/lib/sentry";
 import { ContextForm } from "./ContextForm";
 import { CredentialsSection } from "./CredentialsSection";
 import { createConversation } from "./conversations/actions";
@@ -63,6 +64,7 @@ export default async function ProjectDetailPage({
     { data: contexts },
     { data: runs },
     github,
+    sentry,
     { data: creds },
     { data: convs },
   ] = await Promise.all([
@@ -83,6 +85,7 @@ export default async function ProjectDetailPage({
       .order("started_at", { ascending: false })
       .limit(10),
     loadGithubIntegration(id),
+    loadSentryIntegration(id),
     sb
       .from("credentials")
       .select("id, name, description, fields, created_at")
@@ -208,7 +211,37 @@ export default async function ProjectDetailPage({
               </div>
             )}
             <hr className="border-[var(--color-cream-200)]" />
-            <IntegrationStub name="Sentry" detail="Correlate failures with production errors" />
+            {sentry ? (
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium text-[var(--color-ink-700)]">Sentry</p>
+                  <p className="text-xs text-[var(--color-ink-500)]">
+                    <span className="font-mono">{sentry.org}/{sentry.project}</span>
+                  </p>
+                </div>
+                <Link
+                  href={`/projects/${p.id}/integrations/sentry`}
+                  className="rounded-full bg-[var(--color-cream-200)] px-3 py-1 font-mono text-[10px] uppercase text-[var(--color-ink-700)] hover:bg-[var(--color-coral-100)]"
+                >
+                  Edit
+                </Link>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium text-[var(--color-ink-700)]">Sentry</p>
+                  <p className="text-xs text-[var(--color-ink-500)]">
+                    Correlate failures with production errors
+                  </p>
+                </div>
+                <Link
+                  href={`/projects/${p.id}/integrations/sentry`}
+                  className="rounded-full bg-[var(--color-coral-500)] px-3 py-1 font-mono text-[10px] uppercase text-white hover:bg-[var(--color-coral-600)]"
+                >
+                  Connect
+                </Link>
+              </div>
+            )}
           </div>
         </section>
 

@@ -42,6 +42,13 @@ interface RunRow {
   github_issue_url: string | null;
   github_issue_number: number | null;
   conversation_id: string | null;
+  sentry_errors: Array<{
+    id: string;
+    title: string;
+    level: string;
+    timestamp: string;
+    permalink?: string;
+  }> | null;
   projects: { name: string; target_url: string; device_preset: string | null } | null;
 }
 
@@ -65,7 +72,7 @@ export default async function RunPage({
     sb
       .from("runs")
       .select(
-        "id, status, prompt, model, error, started_at, completed_at, project_id, trace_path, device_preset, github_issue_url, github_issue_number, conversation_id, projects(name, target_url, device_preset)",
+        "id, status, prompt, model, error, started_at, completed_at, project_id, trace_path, device_preset, github_issue_url, github_issue_number, conversation_id, sentry_errors, projects(name, target_url, device_preset)",
       )
       .eq("id", id)
       .single(),
@@ -222,6 +229,42 @@ export default async function RunPage({
           </div>
         )}
       </section>
+
+      {run.sentry_errors && run.sentry_errors.length > 0 && (
+        <section className="mb-6 rounded-2xl border border-[var(--color-amber-500)] bg-[var(--color-amber-100)]/30 p-5">
+          <p className="font-mono text-xs uppercase tracking-widest text-[var(--color-amber-500)]">
+            Sentry errors during this run ({run.sentry_errors.length})
+          </p>
+          <ul className="mt-3 space-y-2">
+            {run.sentry_errors.slice(0, 10).map((e) => (
+              <li
+                key={e.id}
+                className="flex items-baseline justify-between gap-3 rounded-xl bg-white p-3"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="truncate text-sm text-[var(--color-ink-900)]">
+                    {e.title}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--color-ink-500)]">
+                    <span className="font-mono uppercase">{e.level}</span> ·{" "}
+                    {new Date(e.timestamp).toLocaleString()}
+                  </p>
+                </div>
+                {e.permalink && (
+                  <a
+                    href={e.permalink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-[var(--color-coral-500)] hover:underline"
+                  >
+                    open ↗
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {finalAssertion && (
         <footer

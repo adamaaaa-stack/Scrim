@@ -15,6 +15,7 @@ import { buildSystemPrompt } from "./prompts.js";
 import { persistStep, updateRun } from "./persistence.js";
 import { listCredentialSummaries } from "./credentials.js";
 import { reportFailureToGithub } from "../integrations/github.js";
+import { fetchErrorsForRun } from "../integrations/sentry.js";
 import {
   GENERATE_TEST_DATA_TOOL,
   generateTestData,
@@ -438,10 +439,28 @@ export async function runAgentLoop(
         logger.warn({ err, runId: input.runId }, "chat summary post failed"),
       );
     }
+    const completedAt = new Date();
+
+    // Try to pull Sentry errors that fired during the run window. Best-effort
+    // — never blocks completion. Persisted alongside the terminal status.
+    let sentryErrors: unknown = undefined;
+    try {
+      const startedAt = new Date(Date.now() - 5 * 60 * 1000); // approx; loop start time would be more precise
+      const errs = await fetchErrorsForRun({
+        projectId: input.projectId,
+        startedAt,
+        completedAt,
+      });
+      if (errs) sentryErrors = errs;
+    } catch (err) {
+      logger.warn({ err, runId: input.runId }, "sentry correlation failed");
+    }
+
     await updateRun(input.runId, {
       status,
-      completedAt: new Date(),
+      completedAt,
       ...(status === "errored" ? { error: reasonOrError } : { error: null }),
+      ...(sentryErrors !== undefined ? { sentryErrors } : {}),
     });
     if (status === "failed") {
       await maybeFileFailureIssue(reasonOrError);
