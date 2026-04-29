@@ -449,6 +449,17 @@ async function loadCredentialFields(
   return data.fields as Record<string, string>;
 }
 
+/** Names of all credentials configured for this project (no values). */
+async function listCredentialNames(projectId: string): Promise<string[]> {
+  const sb = supabaseAdmin();
+  const { data } = await sb
+    .from("credentials")
+    .select("name")
+    .eq("project_id", projectId)
+    .order("name");
+  return (data ?? []).map((r) => r.name as string);
+}
+
 /** List all credential names for a project (used in error messages). */
 async function listAvailableCredentialNames(projectId: string): Promise<string[]> {
   const sb = supabaseAdmin();
