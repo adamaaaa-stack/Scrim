@@ -10,6 +10,8 @@ import { StepCard } from "@/components/StepCard";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { JudgmentView } from "@/components/JudgmentView";
 import { NarratorProvider } from "./RunNarrator";
+import { findSimilarFailures } from "@/lib/clustering";
+import { SimilarFailures } from "./SimilarFailures";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -109,6 +111,12 @@ export default async function RunPage({
   );
 
   const finalAssertion = steps.find((s) => s.tool_name === "assertPass" || s.tool_name === "assertFail");
+
+  // For failed runs, look for similar past failures in this project.
+  const similarFailures =
+    run.status === "failed"
+      ? await findSimilarFailures({ runId: run.id }).catch(() => [])
+      : [];
   const traceSignedUrl = run.trace_path ? await signedTraceUrl(run.trace_path, 3600) : null;
   const traceViewerUrl = traceSignedUrl
     ? `https://trace.playwright.dev/?trace=${encodeURIComponent(traceSignedUrl)}`
@@ -232,6 +240,8 @@ export default async function RunPage({
           )}
         </section>
       </NarratorProvider>
+
+      {similarFailures.length > 0 && <SimilarFailures failures={similarFailures} />}
 
       {run.sentry_errors && run.sentry_errors.length > 0 && (
         <section className="mb-6 rounded-2xl border border-[var(--color-amber-500)] bg-[var(--color-amber-100)]/30 p-5">

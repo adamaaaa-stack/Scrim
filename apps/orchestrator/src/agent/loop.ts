@@ -16,6 +16,7 @@ import { persistStep, updateRun } from "./persistence.js";
 import { listCredentialSummaries } from "./credentials.js";
 import { reportFailureToGithub } from "../integrations/github.js";
 import { fetchErrorsForRun } from "../integrations/sentry.js";
+import { buildFailureText, generateEmbedding } from "./embeddings.js";
 import {
   GENERATE_TEST_DATA_TOOL,
   generateTestData,
@@ -456,11 +457,34 @@ export async function runAgentLoop(
       logger.warn({ err, runId: input.runId }, "sentry correlation failed");
     }
 
+    // Generate failure embedding for clustering. Only runs on terminal failure
+    // — passes don't get embeddings (no cluster value). Best-effort.
+    let failureEmbedding: number[] | undefined;
+    if (status === "failed") {
+      try {
+        const text = buildFailureText({
+          prompt: input.prompt,
+          judgmentReason: reasonOrError,
+          ...(lastScreenshotStep
+            ? {
+                failedStepIntent: lastScreenshotStep.intent,
+                failedStepTool: lastScreenshotStep.toolName,
+              }
+            : {}),
+        });
+        const emb = await generateEmbedding(text);
+        if (emb) failureEmbedding = emb;
+      } catch (err) {
+        logger.warn({ err, runId: input.runId }, "failure embedding failed");
+      }
+    }
+
     await updateRun(input.runId, {
       status,
       completedAt,
       ...(status === "errored" ? { error: reasonOrError } : { error: null }),
       ...(sentryErrors !== undefined ? { sentryErrors } : {}),
+      ...(failureEmbedding !== undefined ? { failureEmbedding } : {}),
     });
     if (status === "failed") {
       await maybeFileFailureIssue(reasonOrError);
