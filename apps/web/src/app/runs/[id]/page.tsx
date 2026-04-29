@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { StepCard } from "@/components/StepCard";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { JudgmentView } from "@/components/JudgmentView";
+import { NarratorProvider } from "./RunNarrator";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -213,22 +214,24 @@ export default async function RunPage({
         )}
       </header>
 
-      <section>
-        <h2 className="mb-6 font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
-          Timeline
-        </h2>
-        {steps.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-[var(--color-cream-300)] bg-white p-8 text-center text-sm text-[var(--color-ink-500)]">
-            Agent hasn&apos;t produced any steps yet.
-          </p>
-        ) : (
-          <div>
-            {steps.map((s) => (
-              <StepCard key={s.id} step={s} />
-            ))}
-          </div>
-        )}
-      </section>
+      <NarratorProvider runId={run.id}>
+        <section>
+          <h2 className="mb-6 font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+            Timeline
+          </h2>
+          {steps.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-[var(--color-cream-300)] bg-white p-8 text-center text-sm text-[var(--color-ink-500)]">
+              Agent hasn&apos;t produced any steps yet.
+            </p>
+          ) : (
+            <div>
+              {steps.map((s) => (
+                <StepCard key={s.id} step={s} />
+              ))}
+            </div>
+          )}
+        </section>
+      </NarratorProvider>
 
       {run.sentry_errors && run.sentry_errors.length > 0 && (
         <section className="mb-6 rounded-2xl border border-[var(--color-amber-500)] bg-[var(--color-amber-100)]/30 p-5">

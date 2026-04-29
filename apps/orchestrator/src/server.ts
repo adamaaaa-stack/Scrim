@@ -4,6 +4,7 @@ import { createOpenRouterClient } from "@ai-testing/shared/openrouter";
 import { runAgentLoop } from "./agent/loop.js";
 import { handleChatTurn } from "./agent/chat.js";
 import { rewritePrompt } from "./agent/rewrite.js";
+import { narrateRun } from "./agent/narrator.js";
 import { insertRun } from "./agent/persistence.js";
 import { supabaseAdmin } from "./db/supabase.js";
 import { logger } from "./logger.js";
@@ -110,6 +111,29 @@ export function buildServer() {
       return c.json(result);
     } catch (err) {
       logger.error({ err, projectId: parsed.data.projectId }, "rewrite failed");
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
+  });
+
+  app.post("/runs/:id/narrate", async (c) => {
+    const runId = c.req.param("id");
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) return c.json({ error: "OPENROUTER_API_KEY missing" }, 500);
+
+    const llm = createOpenRouterClient({
+      apiKey,
+      defaultModel: process.env.OPENROUTER_DEFAULT_MODEL,
+      appName: "AI Testing Platform Narrator",
+    });
+
+    try {
+      const result = await narrateRun(llm, runId);
+      return c.json(result);
+    } catch (err) {
+      logger.error({ err, runId }, "narrate failed");
       return c.json(
         { error: err instanceof Error ? err.message : String(err) },
         500,

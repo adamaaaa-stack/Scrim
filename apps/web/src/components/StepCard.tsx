@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { JudgmentView } from "./JudgmentView";
+import { StepNarration } from "@/app/runs/[id]/RunNarrator";
 
 interface NetworkEntry {
   ts: number;
@@ -235,6 +236,8 @@ export function StepCard({ step }: { step: Step }) {
           {step.network_log && step.network_log.length > 0 && (
             <NetworkSection entries={step.network_log} />
           )}
+
+          <StepNarration stepId={step.id} />
         </div>
       </div>
     </div>
