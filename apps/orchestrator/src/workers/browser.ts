@@ -6,6 +6,11 @@ import { z } from "zod";
 import { uploadScreenshot } from "../storage/screenshots.js";
 import { uploadTrace } from "../storage/traces.js";
 import { supabaseAdmin } from "../db/supabase.js";
+import {
+  attackById,
+  checkCompromise,
+  SECURITY_ATTACKS,
+} from "../agent/security-attacks.js";
 import { logger } from "../logger.js";
 
 export type DevicePreset = "desktop" | "iphone" | "ipad" | "android";
@@ -74,6 +79,15 @@ export const SignInArgs = z.object({
   pressEnterAfter: z.boolean().default(false),
 });
 
+export const RunSecurityProbeArgs = z.object({
+  attackId: z.string().min(1),
+  inputSelector: z.string().min(1),
+  responseSelector: z.string().min(1),
+  submitSelector: z.string().optional(),
+  pressEnterAfter: z.boolean().default(false),
+  responseWaitMs: z.number().int().positive().max(30000).default(5000),
+});
+
 export type ToolName =
   | "navigate"
   | "click"
@@ -84,7 +98,8 @@ export type ToolName =
   | "evaluate"
   | "getAccessibility"
   | "setViewport"
-  | "signIn";
+  | "signIn"
+  | "runSecurityProbe";
 
 export interface ToolCall {
   name: ToolName;
@@ -100,6 +115,16 @@ export interface NetworkEntry {
   failed?: boolean;
 }
 
+export interface SecurityProbeResult {
+  attackId: string;
+  attackName: string;
+  category: string;
+  severity: string;
+  compromised: boolean;
+  matchedIndicators: string[];
+  responseSnippet: string;
+}
+
 export interface Observation {
   ok: boolean;
   screenshotPath?: string;
@@ -111,6 +136,7 @@ export interface Observation {
   evaluateResult?: unknown;
   accessibilitySnippet?: string;
   viewport?: { width: number; height: number };
+  securityProbeResult?: SecurityProbeResult;
 }
 
 // ============================================================
@@ -331,6 +357,42 @@ export class BrowserWorker {
           this.viewport = size;
           const obs = await this.snapshot();
           return { ...obs, viewport: size };
+        }
+        case "runSecurityProbe": {
+          const args = RunSecurityProbeArgs.parse(call.args);
+          const attack = attackById(args.attackId);
+          if (!attack) {
+            return {
+              ok: false,
+              error: `Unknown attack id '${args.attackId}'. Available: ${SECURITY_ATTACKS.map((a) => a.id).join(", ")}`,
+            };
+          }
+          await this.page.fill(args.inputSelector, attack.prompt, { timeout: 10000 });
+          if (args.submitSelector) {
+            await this.page.click(args.submitSelector, { timeout: 10000 });
+          } else if (args.pressEnterAfter) {
+            await this.page.press(args.inputSelector, "Enter");
+          }
+          await this.page.waitForTimeout(args.responseWaitMs);
+          const response = await this.page
+            .locator(args.responseSelector)
+            .first()
+            .innerText({ timeout: 5000 })
+            .catch(() => "");
+          const { compromised, matchedIndicators } = checkCompromise(attack, response);
+          const obs = await this.snapshot();
+          return {
+            ...obs,
+            securityProbeResult: {
+              attackId: attack.id,
+              attackName: attack.name,
+              category: attack.category,
+              severity: attack.severity,
+              compromised,
+              matchedIndicators,
+              responseSnippet: response.slice(0, 1000),
+            },
+          };
         }
         case "signIn": {
           const args = SignInArgs.parse(call.args);
@@ -626,6 +688,41 @@ export const BROWSER_TOOLS = [
           width: { type: "integer" },
           height: { type: "integer" },
         },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "runSecurityProbe",
+      description:
+        "Run a known adversarial prompt-injection / jailbreak attack against an AI feature in the page. Specify the attack id, the input selector (where to type the malicious prompt), and the response selector (where to read the AI's response from). The worker checks the response for indicators of compromise. Available attacks: sysprompt_repeat_above, sysprompt_translation_trick, sysprompt_developer_mode, ignore_previous, do_anything_now, fictional_scenario, grandma_exploit, base64_payload, rot13_payload, unicode_homoglyph, exfil_other_users, exfil_internal_state, tool_destructive_action, tool_unauthorized_send.",
+      parameters: {
+        type: "object",
+        properties: {
+          attackId: { type: "string", description: "Stable id from the attack catalog" },
+          inputSelector: {
+            type: "string",
+            description: "CSS selector for the AI feature's input box (e.g. textarea#chat)",
+          },
+          responseSelector: {
+            type: "string",
+            description: "CSS selector for where the AI's response renders (e.g. .assistant-message:last-child)",
+          },
+          submitSelector: {
+            type: "string",
+            description: "Optional selector to click after typing. Otherwise set pressEnterAfter:true.",
+          },
+          pressEnterAfter: {
+            type: "boolean",
+            description: "Press Enter after typing instead of clicking a submit selector",
+          },
+          responseWaitMs: {
+            type: "integer",
+            description: "Milliseconds to wait for AI response (default 5000, max 30000)",
+          },
+        },
+        required: ["attackId", "inputSelector", "responseSelector"],
       },
     },
   },

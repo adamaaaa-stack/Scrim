@@ -39,6 +39,7 @@ const BROWSER_TOOL_NAMES: ReadonlySet<string> = new Set([
   "getAccessibility",
   "setViewport",
   "signIn",
+  "runSecurityProbe",
 ]);
 
 const PLANNING_TOOLS: ToolDef[] = [
