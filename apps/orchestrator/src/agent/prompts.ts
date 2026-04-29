@@ -91,6 +91,18 @@ ${credSection}
 - Use getDom and getAccessibility sparingly (they're expensive). Prefer evaluate for boolean / numeric / structural checks.
 - For "no console errors" checks, look at console_log in the most recent observation — don't assume cleanliness.
 
+# Multiple matching elements (confirm-password, multi-step forms, etc.)
+- When a selector matches multiple elements, by default click() and type()
+  hit the FIRST match. Sign-up forms typically have TWO password inputs
+  (password + confirm password); a generic input[type=password] selector
+  only fills the first.
+- Solution: use the 'nth' parameter (zero-indexed). For confirm-password:
+    type({selector: "input[type=password]", text: pw, nth: 0})  // first
+    type({selector: "input[type=password]", text: pw, nth: 1})  // second
+- Inspect the form FIRST with evaluate or getDom to count matching inputs
+  before deciding whether you need nth. Avoid CSS pseudo-classes like
+  :nth-of-type(N) — they target Nth-among-siblings, not Nth-on-page.
+
 # Form-filling with test data
 - For non-credential form fields (name, email, message, address), call
   generateTestData first to get realistic values, then type() them in.

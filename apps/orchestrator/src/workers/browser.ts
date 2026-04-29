@@ -25,11 +25,13 @@ export const NavigateArgs = z.object({ url: z.string().url() });
 export const ClickArgs = z.object({
   selector: z.string().min(1),
   description: z.string().optional(),
+  nth: z.number().int().nonnegative().optional(),
 });
 export const TypeArgs = z.object({
   selector: z.string().min(1),
   text: z.string(),
   pressEnter: z.boolean().default(false),
+  nth: z.number().int().nonnegative().optional(),
 });
 export const WaitArgs = z.object({
   selector: z.string().optional(),
@@ -247,14 +249,24 @@ export class BrowserWorker {
           return await this.snapshot();
         }
         case "click": {
-          const { selector } = ClickArgs.parse(call.args);
-          await this.page.click(selector, { timeout: 10000 });
+          const { selector, nth } = ClickArgs.parse(call.args);
+          if (nth !== undefined) {
+            await this.page.locator(selector).nth(nth).click({ timeout: 10000 });
+          } else {
+            await this.page.click(selector, { timeout: 10000 });
+          }
           return await this.snapshot();
         }
         case "type": {
-          const { selector, text, pressEnter } = TypeArgs.parse(call.args);
-          await this.page.fill(selector, text, { timeout: 10000 });
-          if (pressEnter) await this.page.press(selector, "Enter");
+          const { selector, text, pressEnter, nth } = TypeArgs.parse(call.args);
+          if (nth !== undefined) {
+            const loc = this.page.locator(selector).nth(nth);
+            await loc.fill(text, { timeout: 10000 });
+            if (pressEnter) await loc.press("Enter");
+          } else {
+            await this.page.fill(selector, text, { timeout: 10000 });
+            if (pressEnter) await this.page.press(selector, "Enter");
+          }
           return await this.snapshot();
         }
         case "wait": {
@@ -493,12 +505,17 @@ export const BROWSER_TOOLS = [
     type: "function" as const,
     function: {
       name: "click",
-      description: "Click the first element matching the CSS selector.",
+      description: "Click an element. By default clicks the first match. Use 'nth' (zero-indexed) to click a specific match when the selector matches multiple elements (e.g. several 'Submit' buttons).",
       parameters: {
         type: "object",
         properties: {
           selector: { type: "string", description: "CSS selector or Playwright locator" },
           description: { type: "string", description: "What this click is meant to accomplish" },
+          nth: {
+            type: "integer",
+            minimum: 0,
+            description: "Zero-indexed position when selector matches multiple elements (0=first, 1=second).",
+          },
         },
         required: ["selector"],
       },
@@ -508,13 +525,18 @@ export const BROWSER_TOOLS = [
     type: "function" as const,
     function: {
       name: "type",
-      description: "Fill a form field with text. Optionally press Enter after.",
+      description: "Fill a form field with text. By default fills the first match. Use 'nth' (zero-indexed) to target a specific match — REQUIRED for confirm-password fields and other forms with multiple inputs of the same type.",
       parameters: {
         type: "object",
         properties: {
           selector: { type: "string" },
           text: { type: "string" },
           pressEnter: { type: "boolean", description: "Press Enter after typing" },
+          nth: {
+            type: "integer",
+            minimum: 0,
+            description: "Zero-indexed position when selector matches multiple elements (0=first, 1=second).",
+          },
         },
         required: ["selector", "text"],
       },
