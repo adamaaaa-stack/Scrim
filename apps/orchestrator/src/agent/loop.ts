@@ -21,6 +21,7 @@ import {
   type DataFlavor,
   type FieldRequest,
 } from "./data-generator.js";
+import { postRunSummaryToChat } from "./run-summary.js";
 import { logger } from "../logger.js";
 
 const MAX_ITERATIONS = 30;
@@ -98,6 +99,9 @@ export interface AgentLoopInput {
   targetUrl: string;
   model?: string;
   devicePreset?: DevicePreset;
+  /** If set, a follow-up summary message will be posted to this chat
+   *  thread when the run completes. */
+  conversationId?: string;
 }
 
 export interface AgentLoopResult {
@@ -419,6 +423,21 @@ export async function runAgentLoop(
     reasonOrError: string,
     iterations: number,
   ): Promise<AgentLoopResult> {
+    // If this run was spawned from a chat thread, post the summary BEFORE
+    // marking the run terminal. The chat page's AutoRefresh keeps polling
+    // while the run is still 'running', so the message lands in time.
+    if (input.conversationId) {
+      await postRunSummaryToChat({
+        llm,
+        runId: input.runId,
+        conversationId: input.conversationId,
+        status,
+        prompt: input.prompt,
+        reason: reasonOrError,
+      }).catch((err) =>
+        logger.warn({ err, runId: input.runId }, "chat summary post failed"),
+      );
+    }
     await updateRun(input.runId, {
       status,
       completedAt: new Date(),

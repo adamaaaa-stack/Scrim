@@ -246,10 +246,12 @@ export async function handleChatTurn(
 
         startedRuns.push({ runId, prompt, ...(rationale ? { rationale } : {}) });
 
-        // Fire and forget the actual agent loop
+        // Fire and forget the actual agent loop. conversationId tells the
+        // loop to post a follow-up summary message when the run completes.
         runAgentLoop(llm, {
           runId,
           projectId: input.projectId,
+          conversationId: input.conversationId,
           prompt,
           context: "",
           targetUrl: project.target_url as string,
