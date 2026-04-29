@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createOpenRouterClient } from "@ai-testing/shared/openrouter";
 import { runAgentLoop } from "./agent/loop.js";
 import { handleChatTurn } from "./agent/chat.js";
+import { rewritePrompt } from "./agent/rewrite.js";
 import { insertRun } from "./agent/persistence.js";
 import { supabaseAdmin } from "./db/supabase.js";
 import { logger } from "./logger.js";
@@ -82,6 +83,38 @@ export function buildServer() {
     );
 
     return c.json({ id: runId, status: "queued" }, 202);
+  });
+
+  app.post("/rewrite-prompt", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const Req = z.object({
+      projectId: z.string().uuid(),
+      prompt: z.string().min(3),
+    });
+    const parsed = Req.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.flatten() }, 400);
+    }
+
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) return c.json({ error: "OPENROUTER_API_KEY missing" }, 500);
+
+    const llm = createOpenRouterClient({
+      apiKey,
+      defaultModel: process.env.OPENROUTER_DEFAULT_MODEL,
+      appName: "AI Testing Platform Rewriter",
+    });
+
+    try {
+      const result = await rewritePrompt(llm, parsed.data);
+      return c.json(result);
+    } catch (err) {
+      logger.error({ err, projectId: parsed.data.projectId }, "rewrite failed");
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
   });
 
   app.post("/conversations/:id/messages", async (c) => {

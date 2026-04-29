@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import { Button } from "@/components/Button";
 import { createRun, type CreateRunFormState } from "./actions";
 import { TemplatePicker } from "./TemplatePicker";
 import type { PromptTemplate } from "@/lib/templates";
+import { rewritePromptAction, type RewriteResponse } from "./rewrite-action";
 
 interface Project {
   id: string;
@@ -29,12 +30,37 @@ export function RunForm({
 
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const deviceRef = useRef<HTMLSelectElement>(null);
+  const projectRef = useRef<HTMLSelectElement>(null);
   const [templateBadge, setTemplateBadge] = useState<string | null>(null);
+  const [rewrite, setRewrite] = useState<RewriteResponse | null>(null);
+  const [isRewriting, startRewrite] = useTransition();
 
   function applyTemplate(t: PromptTemplate) {
     if (promptRef.current) promptRef.current.value = t.prompt;
     if (deviceRef.current && t.device) deviceRef.current.value = t.device;
     setTemplateBadge(t.name);
+    setRewrite(null);
+    promptRef.current?.focus();
+  }
+
+  function requestRewrite() {
+    const projectId = projectRef.current?.value ?? "";
+    const prompt = promptRef.current?.value ?? "";
+    setRewrite(null);
+    startRewrite(async () => {
+      const res = await rewritePromptAction(projectId, prompt);
+      setRewrite(res);
+    });
+  }
+
+  function acceptRewrite() {
+    if (!rewrite?.rewrite) return;
+    if (promptRef.current) promptRef.current.value = rewrite.rewrite;
+    if (rewrite.suggestedDevice && deviceRef.current) {
+      deviceRef.current.value = rewrite.suggestedDevice;
+    }
+    setTemplateBadge(null);
+    setRewrite(null);
     promptRef.current?.focus();
   }
 
@@ -50,6 +76,7 @@ export function RunForm({
         <select
           id="projectId"
           name="projectId"
+          ref={projectRef}
           required
           defaultValue={initialProject}
           className="mt-2 w-full appearance-none rounded-xl border border-[var(--color-cream-300)] bg-white px-4 py-3 text-sm text-[var(--color-ink-900)] focus:border-[var(--color-coral-500)] focus:outline-none"
@@ -88,10 +115,61 @@ export function RunForm({
           className="mt-2 w-full resize-y rounded-xl border border-[var(--color-cream-300)] bg-white px-4 py-3 text-[15px] leading-relaxed text-[var(--color-ink-900)] placeholder:text-[var(--color-ink-300)] focus:border-[var(--color-coral-500)] focus:outline-none"
           onChange={() => templateBadge && setTemplateBadge(null)}
         />
-        <p className="mt-2 text-xs text-[var(--color-ink-500)]">
-          Be specific about what should be true. The agent will plan steps from this. Replace any{" "}
-          <code className="font-mono text-[var(--color-coral-500)]">REPLACE_ME</code> placeholders before running.
-        </p>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className="text-xs text-[var(--color-ink-500)]">
+            Be specific about what should be true. Replace any{" "}
+            <code className="font-mono text-[var(--color-coral-500)]">REPLACE_ME</code> placeholders.
+          </p>
+          <button
+            type="button"
+            onClick={requestRewrite}
+            disabled={isRewriting}
+            className="flex items-center gap-1.5 rounded-full border border-[var(--color-cream-300)] bg-white px-3 py-1 text-xs font-medium text-[var(--color-ink-700)] transition hover:border-[var(--color-coral-400)] hover:text-[var(--color-coral-500)] disabled:opacity-50"
+          >
+            ✨ {isRewriting ? "Improving…" : "Improve prompt"}
+          </button>
+        </div>
+
+        {rewrite && (
+          <div className="mt-4 rounded-2xl border border-[var(--color-coral-400)] bg-[var(--color-coral-100)]/30 p-5">
+            {rewrite.error ? (
+              <p className="text-sm text-[var(--color-rust-600)]">{rewrite.error}</p>
+            ) : (
+              <>
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="font-mono text-xs uppercase tracking-widest text-[var(--color-coral-600)]">
+                    ✨ Suggested rewrite
+                  </p>
+                  {rewrite.suggestedDevice && (
+                    <span className="rounded-full bg-white px-2 py-0.5 font-mono text-[10px] uppercase">
+                      device → {rewrite.suggestedDevice}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-3 text-[15px] leading-relaxed text-[var(--color-ink-900)]">
+                  {rewrite.rewrite}
+                </p>
+                {rewrite.reasoning && (
+                  <p className="mt-3 text-xs italic text-[var(--color-ink-500)]">
+                    Why: {rewrite.reasoning}
+                  </p>
+                )}
+                <div className="mt-4 flex items-center gap-2">
+                  <Button type="button" size="sm" onClick={acceptRewrite}>
+                    Accept rewrite
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setRewrite(null)}
+                    className="text-xs text-[var(--color-ink-500)] hover:text-[var(--color-coral-500)]"
+                  >
+                    Discard
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <details className="text-sm text-[var(--color-ink-500)]">
