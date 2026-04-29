@@ -5,7 +5,8 @@ import { runAgentLoop } from "./agent/loop.js";
 import { handleChatTurn } from "./agent/chat.js";
 import { rewritePrompt } from "./agent/rewrite.js";
 import { narrateRun } from "./agent/narrator.js";
-import { insertRun } from "./agent/persistence.js";
+import { insertRun, updateRun } from "./agent/persistence.js";
+import { runVoiceAgent } from "./voice/voice-agent.js";
 import { supabaseAdmin } from "./db/supabase.js";
 import { logger } from "./logger.js";
 
@@ -116,6 +117,60 @@ export function buildServer() {
         500,
       );
     }
+  });
+
+  app.post("/voice-runs", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const Req = z.object({
+      projectId: z.string().uuid(),
+      prompt: z.string().min(1),
+      personaId: z.string().min(1),
+      roomName: z.string().min(1),
+      model: z.string().optional(),
+    });
+    const parsed = Req.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) return c.json({ error: "OPENROUTER_API_KEY missing" }, 500);
+
+    const llm = createOpenRouterClient({
+      apiKey,
+      defaultModel: parsed.data.model ?? process.env.OPENROUTER_DEFAULT_MODEL,
+      appName: "AI Testing Platform Voice",
+    });
+
+    const runId = await insertRun({
+      projectId: parsed.data.projectId,
+      prompt: parsed.data.prompt,
+      contextRefs: [],
+      model: parsed.data.model ?? process.env.OPENROUTER_DEFAULT_MODEL ?? "x-ai/grok-4.1-fast",
+    });
+
+    // Fire and forget — caller polls /runs/:id.
+    runVoiceAgent(llm, {
+      runId,
+      projectId: parsed.data.projectId,
+      prompt: parsed.data.prompt,
+      personaId: parsed.data.personaId,
+      roomName: parsed.data.roomName,
+    })
+      .then(async (result) => {
+        await updateRun(runId, {
+          status: result.status,
+          completedAt: new Date(),
+          ...(result.status === "errored" ? { error: result.reason } : { error: null }),
+        });
+        if (result.scores) {
+          await supabaseAdmin()
+            .from("runs")
+            .update({ voice_judge_scores: result.scores })
+            .eq("id", runId);
+        }
+      })
+      .catch((err) => logger.error({ err, runId }, "voice run top-level error"));
+
+    return c.json({ id: runId, status: "queued" }, 202);
   });
 
   app.post("/runs/:id/narrate", async (c) => {
