@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { createOpenRouterClient } from "@ai-testing/shared/openrouter";
 import { runAgentLoop } from "./agent/loop.js";
+import { handleChatTurn } from "./agent/chat.js";
 import { insertRun } from "./agent/persistence.js";
 import { supabaseAdmin } from "./db/supabase.js";
 import { logger } from "./logger.js";
@@ -81,6 +82,43 @@ export function buildServer() {
     );
 
     return c.json({ id: runId, status: "queued" }, 202);
+  });
+
+  app.post("/conversations/:id/messages", async (c) => {
+    const conversationId = c.req.param("id");
+    const body = await c.req.json().catch(() => ({}));
+    const ChatRequest = z.object({
+      projectId: z.string().uuid(),
+      message: z.string().min(1),
+    });
+    const parsed = ChatRequest.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.flatten() }, 400);
+    }
+
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) return c.json({ error: "OPENROUTER_API_KEY missing" }, 500);
+
+    const llm = createOpenRouterClient({
+      apiKey,
+      defaultModel: process.env.OPENROUTER_DEFAULT_MODEL,
+      appName: "AI Testing Platform Chat",
+    });
+
+    try {
+      const result = await handleChatTurn(llm, {
+        conversationId,
+        projectId: parsed.data.projectId,
+        userMessage: parsed.data.message,
+      });
+      return c.json(result);
+    } catch (err) {
+      logger.error({ err, conversationId }, "chat turn failed");
+      return c.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
+    }
   });
 
   app.get("/runs/:id", async (c) => {

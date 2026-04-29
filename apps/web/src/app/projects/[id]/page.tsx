@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { loadGithubIntegration } from "@/lib/github";
 import { ContextForm } from "./ContextForm";
 import { CredentialsSection } from "./CredentialsSection";
+import { createConversation } from "./conversations/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,12 @@ interface CredentialRow {
   created_at: string;
 }
 
+interface ConversationRow {
+  id: string;
+  title: string;
+  updated_at: string;
+}
+
 interface RunRow {
   id: string;
   status: string;
@@ -51,37 +58,52 @@ export default async function ProjectDetailPage({
   const { id } = await params;
   const sb = supabaseAdmin();
 
-  const [{ data: project }, { data: contexts }, { data: runs }, github, { data: creds }] =
-    await Promise.all([
-      sb
-        .from("projects")
-        .select("id, name, target_url, description, device_preset, created_at")
-        .eq("id", id)
-        .single(),
-      sb
-        .from("contexts")
-        .select("id, kind, title, body, created_at")
-        .eq("project_id", id)
-        .order("created_at", { ascending: false }),
-      sb
-        .from("runs")
-        .select("id, status, prompt, started_at, completed_at, device_preset")
-        .eq("project_id", id)
-        .order("started_at", { ascending: false })
-        .limit(10),
-      loadGithubIntegration(id),
-      sb
-        .from("credentials")
-        .select("id, name, description, fields, created_at")
-        .eq("project_id", id)
-        .order("created_at", { ascending: false }),
-    ]);
+  const [
+    { data: project },
+    { data: contexts },
+    { data: runs },
+    github,
+    { data: creds },
+    { data: convs },
+  ] = await Promise.all([
+    sb
+      .from("projects")
+      .select("id, name, target_url, description, device_preset, created_at")
+      .eq("id", id)
+      .single(),
+    sb
+      .from("contexts")
+      .select("id, kind, title, body, created_at")
+      .eq("project_id", id)
+      .order("created_at", { ascending: false }),
+    sb
+      .from("runs")
+      .select("id, status, prompt, started_at, completed_at, device_preset")
+      .eq("project_id", id)
+      .order("started_at", { ascending: false })
+      .limit(10),
+    loadGithubIntegration(id),
+    sb
+      .from("credentials")
+      .select("id, name, description, fields, created_at")
+      .eq("project_id", id)
+      .order("created_at", { ascending: false }),
+    sb
+      .from("conversations")
+      .select("id, title, updated_at")
+      .eq("project_id", id)
+      .order("updated_at", { ascending: false })
+      .limit(8),
+  ]);
 
   if (!project) notFound();
   const p = project as ProjectRow;
   const ctxs = (contexts ?? []) as ContextRow[];
   const rs = (runs ?? []) as RunRow[];
   const credentialsList = (creds ?? []) as CredentialRow[];
+  const conversations = (convs ?? []) as ConversationRow[];
+
+  const startChat = createConversation.bind(null, p.id);
 
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-6 py-12">
@@ -114,7 +136,17 @@ export default async function ProjectDetailPage({
             </p>
           )}
         </div>
-        <ButtonLink href={`/runs/new?projectId=${p.id}`}>+ New run</ButtonLink>
+        <div className="flex items-center gap-2">
+          <form action={startChat}>
+            <button
+              type="submit"
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-[var(--color-cream-300)] bg-white px-4 py-2 text-sm font-medium text-[var(--color-ink-700)] transition hover:border-[var(--color-coral-400)] hover:text-[var(--color-coral-500)]"
+            >
+              💬 New chat
+            </button>
+          </form>
+          <ButtonLink href={`/runs/new?projectId=${p.id}`}>+ New run</ButtonLink>
+        </div>
       </header>
 
       <div className="grid gap-10 md:grid-cols-3">
@@ -222,6 +254,33 @@ export default async function ProjectDetailPage({
               </ul>
             )}
           </div>
+
+          {conversations.length > 0 && (
+            <div>
+              <h2 className="mb-4 font-mono text-xs uppercase tracking-widest text-[var(--color-ink-500)]">
+                Conversations ({conversations.length})
+              </h2>
+              <ul className="space-y-2">
+                {conversations.map((c) => (
+                  <li key={c.id}>
+                    <Link
+                      href={`/projects/${p.id}/conversations/${c.id}`}
+                      className="block rounded-xl border border-[var(--color-cream-200)] bg-white p-4 transition hover:border-[var(--color-coral-400)]"
+                    >
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-sm text-[var(--color-ink-900)]">
+                          {c.title}
+                        </span>
+                        <span className="text-xs text-[var(--color-ink-400)]">
+                          {new Date(c.updated_at).toLocaleString()}
+                        </span>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <CredentialsSection projectId={p.id} credentials={credentialsList} />
 
