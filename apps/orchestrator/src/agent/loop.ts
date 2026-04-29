@@ -15,6 +15,12 @@ import { buildSystemPrompt } from "./prompts.js";
 import { persistStep, updateRun } from "./persistence.js";
 import { listCredentialSummaries } from "./credentials.js";
 import { reportFailureToGithub } from "../integrations/github.js";
+import {
+  GENERATE_TEST_DATA_TOOL,
+  generateTestData,
+  type DataFlavor,
+  type FieldRequest,
+} from "./data-generator.js";
 import { logger } from "../logger.js";
 
 const MAX_ITERATIONS = 30;
@@ -140,7 +146,12 @@ export async function runAgentLoop(
     { role: "user", content: input.prompt },
   ];
 
-  const tools = [...PLANNING_TOOLS, ...BROWSER_TOOLS, ...ASSERTION_TOOLS];
+  const tools = [
+    ...PLANNING_TOOLS,
+    ...BROWSER_TOOLS,
+    GENERATE_TEST_DATA_TOOL,
+    ...ASSERTION_TOOLS,
+  ];
   let stepIndex = 0;
   let substantiveCalls = 0;
   let planSubmitted = false;
@@ -259,12 +270,49 @@ export async function runAgentLoop(
           return await finish(status, reason, iter + 1);
         }
 
-        // 3. Browser tools — require plan first.
+        // 3. Data generator — non-browser tool, available after plan.
+        if (name === "generateTestData") {
+          if (!planSubmitted) {
+            messages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              content: `Error: call plan() first before requesting test data.`,
+            });
+            continue;
+          }
+          const fields = Array.isArray(parsedArgs.fields)
+            ? (parsedArgs.fields as FieldRequest[])
+            : [];
+          const flavor = (parsedArgs.flavor as DataFlavor | undefined) ?? "default";
+          const data = await generateTestData(llm, { fields, flavor });
+          substantiveCalls += 1;
+          stepIndex += 1;
+          await persistStep({
+            runId: input.runId,
+            index: stepIndex,
+            kind: "evaluate", // closest enum match for now
+            intent: `generate test data (${fields.length} fields, ${flavor})`,
+            toolName: "generateTestData",
+            toolArgs: { fields, flavor },
+            observation: {
+              ok: true,
+              evaluateResult: data,
+            } as Observation,
+          });
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: `Generated data:\n${JSON.stringify(data, null, 2)}`,
+          });
+          continue;
+        }
+
+        // 4. Browser tools — require plan first.
         if (!BROWSER_TOOL_NAMES.has(name)) {
           messages.push({
             role: "tool",
             tool_call_id: tc.id,
-            content: `Error: unknown tool "${name}". Available: plan, navigate, click, type, wait, screenshot, getDom, evaluate, getAccessibility, setViewport, assertPass, assertFail.`,
+            content: `Error: unknown tool "${name}". Available: plan, navigate, click, type, wait, screenshot, getDom, evaluate, getAccessibility, setViewport, signIn, generateTestData, assertPass, assertFail.`,
           });
           continue;
         }

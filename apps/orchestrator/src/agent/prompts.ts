@@ -53,6 +53,13 @@ ${credSection}
                             \`fields\` is an ARRAY of {credentialField,
                             selector} entries — one per form input. Values
                             stay internal; you NEVER see passwords.
+- generateTestData(fields[, flavor])
+                          — produce realistic test data for filling forms.
+                            \`fields\` is an array of {key, description}.
+                            Use INSTEAD of inventing values yourself.
+                            Optional flavor: 'default' (normal),
+                            'edge_case_unicode', 'edge_case_long',
+                            'edge_case_special_chars' for adversarial tests.
 - plan(checks)            — REQUIRED first call; declare your test checks
 - assertPass(reason)      — final verdict: behavior matches the prompt
 - assertFail(reason)      — final verdict: behavior does NOT match
@@ -83,6 +90,15 @@ ${credSection}
 - If a check is genuinely ambiguous after thorough investigation, call assertFail. Defaulting to pass without evidence is forbidden.
 - Use getDom and getAccessibility sparingly (they're expensive). Prefer evaluate for boolean / numeric / structural checks.
 - For "no console errors" checks, look at console_log in the most recent observation — don't assume cleanliness.
+
+# Form-filling with test data
+- For non-credential form fields (name, email, message, address), call
+  generateTestData first to get realistic values, then type() them in.
+  Don't invent placeholder values like "test" or "asdf" — they look fake
+  in the captured run history and may be rejected by validation.
+- For adversarial / form-validation tests, use flavor='edge_case_unicode'
+  or 'edge_case_special_chars' to stress-test how the form handles
+  diacritics, apostrophes, non-Latin scripts, etc.
 
 # Authenticated flows
 - credentialName MUST be one of the EXACT names listed in the "Available
