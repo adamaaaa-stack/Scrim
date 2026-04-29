@@ -41,6 +41,7 @@ interface RunRow {
   device_preset: string | null;
   github_issue_url: string | null;
   github_issue_number: number | null;
+  conversation_id: string | null;
   projects: { name: string; target_url: string; device_preset: string | null } | null;
 }
 
@@ -64,7 +65,7 @@ export default async function RunPage({
     sb
       .from("runs")
       .select(
-        "id, status, prompt, model, error, started_at, completed_at, project_id, trace_path, device_preset, github_issue_url, github_issue_number, projects(name, target_url, device_preset)",
+        "id, status, prompt, model, error, started_at, completed_at, project_id, trace_path, device_preset, github_issue_url, github_issue_number, conversation_id, projects(name, target_url, device_preset)",
       )
       .eq("id", id)
       .single(),
@@ -111,12 +112,22 @@ export default async function RunPage({
   return (
     <main className="mx-auto min-h-screen max-w-3xl px-6 py-12">
       <AutoRefresh enabled={isLive} />
-      <Link
-        href="/runs"
-        className="inline-flex items-center gap-1 text-xs text-[var(--color-ink-500)] hover:text-[var(--color-coral-500)]"
-      >
-        ← All runs
-      </Link>
+      <div className="flex items-center gap-4">
+        <Link
+          href="/runs"
+          className="inline-flex items-center gap-1 text-xs text-[var(--color-ink-500)] hover:text-[var(--color-coral-500)]"
+        >
+          ← All runs
+        </Link>
+        {run.conversation_id && (
+          <Link
+            href={`/projects/${run.project_id}/conversations/${run.conversation_id}`}
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--color-coral-100)] px-3 py-1 text-xs font-medium text-[var(--color-coral-600)] hover:bg-[var(--color-coral-100)]/70"
+          >
+            ← Back to chat
+          </Link>
+        )}
+      </div>
 
       <header className="mt-6 mb-10">
         <div className="flex items-center justify-between gap-4">
