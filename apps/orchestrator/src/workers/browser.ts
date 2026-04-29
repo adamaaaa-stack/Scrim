@@ -327,9 +327,14 @@ export class BrowserWorker {
             args.credentialName,
           );
           if (!credFields) {
+            const available = await listAvailableCredentialNames(this.opts.projectId);
             return {
               ok: false,
-              error: `Credential '${args.credentialName}' not found for this project. Save one in the project settings first.`,
+              error:
+                `Credential '${args.credentialName}' not found for this project. ` +
+                (available.length > 0
+                  ? `Available credential names: [${available.join(", ")}]. Use one of these EXACT names.`
+                  : `No credentials are configured. Ask the user to add one in the project settings.`),
             };
           }
           const orderedSelectors: string[] = [];
@@ -442,6 +447,17 @@ async function loadCredentialFields(
   }
   if (!data?.fields) return null;
   return data.fields as Record<string, string>;
+}
+
+/** List all credential names for a project (used in error messages). */
+async function listAvailableCredentialNames(projectId: string): Promise<string[]> {
+  const sb = supabaseAdmin();
+  const { data } = await sb
+    .from("credentials")
+    .select("name")
+    .eq("project_id", projectId)
+    .order("name", { ascending: true });
+  return (data ?? []).map((row) => row.name as string);
 }
 
 // ============================================================

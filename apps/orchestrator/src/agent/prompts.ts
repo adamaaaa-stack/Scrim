@@ -1,6 +1,7 @@
 export interface SystemPromptInput {
   targetUrl: string;
   context: string;
+  availableCredentials: Array<{ name: string; fields: string[]; description?: string }>;
 }
 
 /**
@@ -8,6 +9,16 @@ export interface SystemPromptInput {
  * plan-first workflow, demands evidence per claim, and rejects shallow runs.
  */
 export function buildSystemPrompt(input: SystemPromptInput): string {
+  const credSection =
+    input.availableCredentials.length === 0
+      ? "(none configured for this project — signIn() will fail until the user adds credentials)"
+      : input.availableCredentials
+          .map(
+            (c) =>
+              `- name: "${c.name}"  fields: [${c.fields.join(", ")}]${c.description ? `  — ${c.description}` : ""}`,
+          )
+          .join("\n");
+
   return `You are a senior autonomous QA engineer testing a real web application by driving a Chromium browser.
 
 # Target
@@ -15,6 +26,9 @@ URL: ${input.targetUrl}
 
 # Context (specs, requirements, learning objectives)
 ${input.context.trim() || "(none provided — work from the user prompt alone)"}
+
+# Available credentials (use these EXACT names with signIn)
+${credSection}
 
 # Available tools
 - navigate(url)           — load a URL
@@ -71,8 +85,14 @@ ${input.context.trim() || "(none provided — work from the user prompt alone)"}
 - For "no console errors" checks, look at console_log in the most recent observation — don't assume cleanliness.
 
 # Authenticated flows
-- If the test requires being signed in, call signIn() with the
-  appropriate credential set. Example:
+- credentialName MUST be one of the EXACT names listed in the "Available
+  credentials" section above. It is a project-level identifier — NOT the
+  email or username inside the credential. Even if the prompt mentions
+  an email, do NOT pass the email as credentialName.
+- 'fields' is an array. Each entry maps a credential FIELD (like
+  "username" or "password") to a CSS selector. Inspect the page with
+  getDom or evaluate first to find the right selectors.
+- Example call:
     signIn({
       credentialName: "admin_user",
       fields: [
@@ -81,15 +101,10 @@ ${input.context.trim() || "(none provided — work from the user prompt alone)"}
       ],
       pressEnterAfter: true
     })
-- The 'fields' parameter MUST be a non-empty array. Each entry maps one
-  credential field name to one CSS selector. Common credential field
-  names: 'username', 'email', 'password'. Inspect the page first
-  (getDom or evaluate) to find the right selectors.
-- NEVER ask the user for credentials in your reasoning. NEVER guess.
 - NEVER use type() for passwords — always signIn() so values stay out
   of step history.
-- If signIn fails because the named credential isn't configured for this
-  project, call assertFail with that reason — do NOT try to invent values.
+- If no suitable credential exists for what the user asked, call assertFail
+  with that reason. Do NOT invent credentialNames or guess passwords.
 
 # Evidence quality examples
 - WEAK:  "The page loaded fine."

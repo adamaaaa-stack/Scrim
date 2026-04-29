@@ -13,6 +13,7 @@ import {
 } from "../workers/browser.js";
 import { buildSystemPrompt } from "./prompts.js";
 import { persistStep, updateRun } from "./persistence.js";
+import { listCredentialSummaries } from "./credentials.js";
 import { reportFailureToGithub } from "../integrations/github.js";
 import { logger } from "../logger.js";
 
@@ -123,8 +124,19 @@ export async function runAgentLoop(
   });
   await worker.start();
 
+  // Surface this project's credentials so the agent uses the correct
+  // credentialName (instead of confusing it with the email value).
+  const availableCredentials = await listCredentialSummaries(input.projectId);
+
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(input) },
+    {
+      role: "system",
+      content: buildSystemPrompt({
+        targetUrl: input.targetUrl,
+        context: input.context,
+        availableCredentials,
+      }),
+    },
     { role: "user", content: input.prompt },
   ];
 
