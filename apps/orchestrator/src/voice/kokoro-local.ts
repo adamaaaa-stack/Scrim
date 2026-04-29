@@ -19,17 +19,50 @@ interface KokoroTTSModel {
 }
 
 async function loadModel(): Promise<KokoroTTSModel> {
-  // Dynamic import so the heavy dep is only loaded when actually used.
-  // kokoro-js has its own load mechanism; the model id can be overridden.
-  const modelId = process.env.KOKORO_MODEL_ID ?? "onnx-community/Kokoro-82M-v1.0-ONNX";
-  const dtype = (process.env.KOKORO_DTYPE ?? "q8") as "fp32" | "fp16" | "q8" | "q4" | "q4f16";
+  // The exact (model_id, dtype) combination must match a file that exists
+  // in the HF repo. kokoro-js bundles a default but doesn't always load
+  // cleanly. We try a sequence of known-good combinations.
+  const candidates: Array<{ modelId: string; dtype: "fp32" | "fp16" | "q8" | "q4" | "q4f16" }> = [];
 
-  logger.info({ modelId, dtype }, "loading kokoro-js model (first call may download ~330MB)");
+  if (process.env.KOKORO_MODEL_ID) {
+    candidates.push({
+      modelId: process.env.KOKORO_MODEL_ID,
+      dtype: (process.env.KOKORO_DTYPE ?? "q8") as "q8",
+    });
+  }
+  // Defaults — try fp32 first (most likely to exist), then quantized.
+  candidates.push(
+    { modelId: "onnx-community/Kokoro-82M-ONNX", dtype: "fp32" },
+    { modelId: "onnx-community/Kokoro-82M-ONNX", dtype: "q8" },
+    { modelId: "onnx-community/Kokoro-82M-v1.0-ONNX", dtype: "fp32" },
+    { modelId: "onnx-community/Kokoro-82M-v1.0-ONNX", dtype: "q8" },
+  );
 
   const { KokoroTTS } = await import("kokoro-js");
-  const model = await KokoroTTS.from_pretrained(modelId, { dtype });
-  logger.info("kokoro-js model loaded");
-  return model as unknown as KokoroTTSModel;
+  let lastErr: unknown;
+  for (const { modelId, dtype } of candidates) {
+    try {
+      logger.info({ modelId, dtype, device: "cpu" }, "loading kokoro-js model");
+      // device: "cpu" is required in Node — default "wasm" is browser-only.
+      const model = await KokoroTTS.from_pretrained(modelId, {
+        dtype,
+        device: "cpu" as never,
+      } as never);
+      logger.info({ modelId, dtype }, "kokoro-js model loaded");
+      return model as unknown as KokoroTTSModel;
+    } catch (err) {
+      lastErr = err;
+      logger.warn(
+        { modelId, dtype, err: err instanceof Error ? err.message : String(err) },
+        "kokoro candidate failed, trying next",
+      );
+    }
+  }
+  throw new Error(
+    `All Kokoro candidates failed. Last error: ${
+      lastErr instanceof Error ? lastErr.message : String(lastErr)
+    }`,
+  );
 }
 
 export class KokoroLocalTTS implements TTSProvider {
