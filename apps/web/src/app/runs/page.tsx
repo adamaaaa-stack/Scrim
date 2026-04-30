@@ -34,13 +34,13 @@ export default async function RunsPage() {
       <header className="mb-10 flex items-end justify-between gap-6">
         <div>
           <p className="font-mono text-xs uppercase tracking-widest text-[var(--color-coral-500)]">
-            AI Testing Platform
+            Runs
           </p>
           <h1 className="mt-3 font-serif text-4xl tracking-tight text-[var(--color-ink-900)]">
-            Recent runs
+            Every test Scrim has run
           </h1>
           <p className="mt-2 text-[15px] text-[var(--color-ink-500)]">
-            Every test the agent has executed, newest first.
+            Newest first. Click any run for the full timeline, screenshots, verdict, trace and narration.
           </p>
         </div>
         <ButtonLink href="/runs/new">+ New run</ButtonLink>

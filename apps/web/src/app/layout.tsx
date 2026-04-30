@@ -22,8 +22,15 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Testing Platform",
-  description: "Prompt-driven, multi-modality AI testing for any app",
+  title: {
+    default: "Scrim",
+    template: "%s · Scrim",
+  },
+  description:
+    "Practice your app on AI users before real ones break it. AI agents test web, voice, security and the full workflow chain — emails, webhooks, UI, all in one run.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({

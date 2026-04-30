@@ -38,10 +38,10 @@ export default async function ProjectsPage() {
             Projects
           </p>
           <h1 className="mt-3 font-serif text-4xl tracking-tight text-[var(--color-ink-900)]">
-            Apps you're testing
+            Apps Scrim is testing for you
           </h1>
           <p className="mt-2 text-[15px] text-[var(--color-ink-500)]">
-            One project per app under test. Each holds its target URL, context, and integrations.
+            One project per app. Holds its URL, context, credentials, and the integrations Scrim talks to.
           </p>
         </div>
         <ButtonLink href="/projects/new">+ New project</ButtonLink>
@@ -52,11 +52,11 @@ export default async function ProjectsPage() {
           <p className="font-serif text-xl text-[var(--color-ink-700)]">
             No projects yet
           </p>
-          <p className="mt-2 text-sm text-[var(--color-ink-500)]">
-            Create your first project to start running tests.
+          <p className="mt-2 max-w-md mx-auto text-sm text-[var(--color-ink-500)]">
+            Add your app's URL, optionally drop in a credential set or PRD, and Scrim will start running real-user-grade tests against it.
           </p>
           <div className="mt-6">
-            <ButtonLink href="/projects/new">+ New project</ButtonLink>
+            <ButtonLink href="/projects/new">+ Create your first project</ButtonLink>
           </div>
         </div>
       ) : (
