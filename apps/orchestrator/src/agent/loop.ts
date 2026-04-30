@@ -40,6 +40,8 @@ const BROWSER_TOOL_NAMES: ReadonlySet<string> = new Set([
   "setViewport",
   "signIn",
   "runSecurityProbe",
+  "waitForEmail",
+  "expectWebhook",
 ]);
 
 const PLANNING_TOOLS: ToolDef[] = [

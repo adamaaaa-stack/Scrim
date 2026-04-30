@@ -79,6 +79,21 @@ export const SignInArgs = z.object({
   pressEnterAfter: z.boolean().default(false),
 });
 
+export const WaitForEmailArgs = z.object({
+  to: z.string().optional(),
+  subjectContains: z.string().optional(),
+  bodyContains: z.string().optional(),
+  timeoutMs: z.number().int().positive().max(60000).default(15000),
+  pollMs: z.number().int().positive().max(10000).default(1000),
+});
+
+export const ExpectWebhookArgs = z.object({
+  label: z.string().min(1).regex(/^[a-z0-9_-]{1,64}$/i),
+  payloadContains: z.string().optional(),
+  timeoutMs: z.number().int().positive().max(60000).default(15000),
+  pollMs: z.number().int().positive().max(10000).default(1000),
+});
+
 export const RunSecurityProbeArgs = z.object({
   attackId: z.string().min(1),
   inputSelector: z.string().min(1),
@@ -99,7 +114,9 @@ export type ToolName =
   | "getAccessibility"
   | "setViewport"
   | "signIn"
-  | "runSecurityProbe";
+  | "runSecurityProbe"
+  | "waitForEmail"
+  | "expectWebhook";
 
 export interface ToolCall {
   name: ToolName;
@@ -113,6 +130,22 @@ export interface NetworkEntry {
   url: string;
   resourceType?: string;
   failed?: boolean;
+}
+
+export interface CapturedEmailMatch {
+  id: string;
+  to: string;
+  from: string | null;
+  subject: string | null;
+  bodySnippet: string | null;
+  receivedAt: string;
+}
+
+export interface CapturedWebhookMatch {
+  id: string;
+  label: string;
+  payloadSnippet: string;
+  receivedAt: string;
 }
 
 export interface SecurityProbeResult {
@@ -137,6 +170,8 @@ export interface Observation {
   accessibilitySnippet?: string;
   viewport?: { width: number; height: number };
   securityProbeResult?: SecurityProbeResult;
+  emailMatch?: CapturedEmailMatch;
+  webhookMatch?: CapturedWebhookMatch;
 }
 
 // ============================================================
@@ -357,6 +392,83 @@ export class BrowserWorker {
           this.viewport = size;
           const obs = await this.snapshot();
           return { ...obs, viewport: size };
+        }
+        case "waitForEmail": {
+          const args = WaitForEmailArgs.parse(call.args);
+          const start = Date.now();
+          const sb = supabaseAdmin();
+          while (Date.now() - start < args.timeoutMs) {
+            let q = sb
+              .from("captured_emails")
+              .select("id, to_addr, from_addr, subject, body_text, received_at")
+              .eq("project_id", this.opts.projectId)
+              .gte("received_at", new Date(start - 60000).toISOString())
+              .order("received_at", { ascending: false })
+              .limit(20);
+            if (args.to) q = q.eq("to_addr", args.to);
+            if (args.subjectContains) q = q.ilike("subject", `%${args.subjectContains}%`);
+            if (args.bodyContains) q = q.ilike("body_text", `%${args.bodyContains}%`);
+            const { data } = await q;
+            if (data && data.length > 0) {
+              const e = data[0]!;
+              const obs = await this.snapshot();
+              return {
+                ...obs,
+                emailMatch: {
+                  id: e.id as string,
+                  to: e.to_addr as string,
+                  from: (e.from_addr as string | null) ?? null,
+                  subject: (e.subject as string | null) ?? null,
+                  bodySnippet: (e.body_text as string | null)?.slice(0, 800) ?? null,
+                  receivedAt: e.received_at as string,
+                },
+              };
+            }
+            await this.page.waitForTimeout(args.pollMs);
+          }
+          return {
+            ok: false,
+            error: `No matching email arrived within ${args.timeoutMs}ms (filters: ${JSON.stringify({ to: args.to, subjectContains: args.subjectContains, bodyContains: args.bodyContains })})`,
+          };
+        }
+        case "expectWebhook": {
+          const args = ExpectWebhookArgs.parse(call.args);
+          const start = Date.now();
+          const sb = supabaseAdmin();
+          while (Date.now() - start < args.timeoutMs) {
+            const { data } = await sb
+              .from("captured_webhooks")
+              .select("id, label, payload, received_at")
+              .eq("project_id", this.opts.projectId)
+              .eq("label", args.label)
+              .gte("received_at", new Date(start - 60000).toISOString())
+              .order("received_at", { ascending: false })
+              .limit(10);
+            if (data && data.length > 0) {
+              const matched = args.payloadContains
+                ? data.find((w) =>
+                    JSON.stringify(w.payload).includes(args.payloadContains!),
+                  )
+                : data[0];
+              if (matched) {
+                const obs = await this.snapshot();
+                return {
+                  ...obs,
+                  webhookMatch: {
+                    id: matched.id as string,
+                    label: matched.label as string,
+                    payloadSnippet: JSON.stringify(matched.payload).slice(0, 800),
+                    receivedAt: matched.received_at as string,
+                  },
+                };
+              }
+            }
+            await this.page.waitForTimeout(args.pollMs);
+          }
+          return {
+            ok: false,
+            error: `No matching webhook on label '${args.label}' within ${args.timeoutMs}ms`,
+          };
         }
         case "runSecurityProbe": {
           const args = RunSecurityProbeArgs.parse(call.args);
@@ -688,6 +800,42 @@ export const BROWSER_TOOLS = [
           width: { type: "integer" },
           height: { type: "integer" },
         },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "waitForEmail",
+      description:
+        "Wait for an email captured at /captures/email/<projectId> to arrive matching the given filters. Use after triggering an action that should send an email (signup welcome, password reset, magic link). Returns the matching email's metadata + body snippet, or errors out after timeoutMs.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Exact 'to' address to match" },
+          subjectContains: { type: "string", description: "Substring match on subject (case-insensitive)" },
+          bodyContains: { type: "string", description: "Substring match on plain-text body" },
+          timeoutMs: { type: "integer", description: "Max wait (default 15000, max 60000)" },
+          pollMs: { type: "integer", description: "Poll interval (default 1000)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "expectWebhook",
+      description:
+        "Wait for a webhook captured at /captures/webhook/<projectId>/<label> to arrive. Use after triggering an action that should fire a webhook (order placed, subscription started, integration event). Returns the captured webhook payload, or errors out after timeoutMs.",
+      parameters: {
+        type: "object",
+        properties: {
+          label: { type: "string", description: "The label segment in the capture URL (e.g. 'order_paid')" },
+          payloadContains: { type: "string", description: "Substring to match anywhere in the JSON-stringified payload" },
+          timeoutMs: { type: "integer", description: "Max wait (default 15000, max 60000)" },
+          pollMs: { type: "integer", description: "Poll interval (default 1000)" },
+        },
+        required: ["label"],
       },
     },
   },

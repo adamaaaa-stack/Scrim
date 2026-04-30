@@ -7,6 +7,14 @@ import { rewritePrompt } from "./agent/rewrite.js";
 import { narrateRun } from "./agent/narrator.js";
 import { insertRun, updateRun } from "./agent/persistence.js";
 import { runVoiceAgent } from "./voice/voice-agent.js";
+
+// ============================================================
+// Cross-channel capture endpoints
+// External services POST here when an email is sent or a webhook fires;
+// we store the payload for the agent to query later via waitForEmail /
+// expectWebhook. Public on purpose — these run on a project-id path so
+// the user configures their app/email-provider to forward to that URL.
+// ============================================================
 import { supabaseAdmin } from "./db/supabase.js";
 import { logger } from "./logger.js";
 
@@ -117,6 +125,69 @@ export function buildServer() {
         500,
       );
     }
+  });
+
+  // Email capture. Accepts a flexible JSON shape — Postmark/SendGrid/Mailgun
+  // all post different payloads, plus an internal {to, from, subject, body}
+  // shape for direct testing. We extract common fields and store the raw too.
+  app.post("/captures/email/:projectId", async (c) => {
+    const projectId = c.req.param("projectId");
+    const ProjectId = z.string().uuid();
+    if (!ProjectId.safeParse(projectId).success) {
+      return c.json({ error: "Invalid projectId" }, 400);
+    }
+    const raw = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    const to =
+      String(raw.to ?? raw.To ?? raw.recipient ?? raw.envelope ?? "")
+        .toString()
+        .trim();
+    const from = String(raw.from ?? raw.From ?? raw.sender ?? "").trim();
+    const subject = String(raw.subject ?? raw.Subject ?? "").trim();
+    const bodyText = String(raw.text ?? raw.TextBody ?? raw.body ?? "").trim();
+    const bodyHtml = String(raw.html ?? raw.HtmlBody ?? "").trim();
+
+    const sb = supabaseAdmin();
+    const { error } = await sb.from("captured_emails").insert({
+      project_id: projectId,
+      to_addr: to,
+      from_addr: from || null,
+      subject: subject || null,
+      body_text: bodyText || null,
+      body_html: bodyHtml || null,
+      raw,
+    });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true }, 201);
+  });
+
+  // Webhook capture, label-keyed (e.g. /captures/webhook/<projectId>/order_paid).
+  app.all("/captures/webhook/:projectId/:label", async (c) => {
+    const projectId = c.req.param("projectId");
+    const label = c.req.param("label");
+    if (!z.string().uuid().safeParse(projectId).success) {
+      return c.json({ error: "Invalid projectId" }, 400);
+    }
+    if (!/^[a-z0-9_-]{1,64}$/i.test(label)) {
+      return c.json({ error: "Invalid label" }, 400);
+    }
+    const payload = await c.req.json().catch(() => ({}));
+    const headers: Record<string, string> = {};
+    c.req.raw.headers.forEach((v, k) => {
+      headers[k] = v;
+    });
+    const query = c.req.queries();
+
+    const sb = supabaseAdmin();
+    const { error } = await sb.from("captured_webhooks").insert({
+      project_id: projectId,
+      label,
+      method: c.req.method,
+      headers,
+      payload,
+      query,
+    });
+    if (error) return c.json({ error: error.message }, 500);
+    return c.json({ ok: true }, 201);
   });
 
   app.post("/voice-runs", async (c) => {
