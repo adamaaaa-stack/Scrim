@@ -1,0 +1,41 @@
+# fly.toml for the Scrim orchestrator.
+# Edit `app` to your chosen name (must be globally unique on Fly.io).
+# Then deploy with `cd apps/orchestrator && flyctl deploy`.
+#
+# Memory: 2GB is the floor — Kokoro + Whisper ONNX models + Playwright
+# Chromium + Node easily exceed 1GB. Don't undersize.
+
+app = "scrim-orchestrator"
+primary_region = "iad"  # Ashburn, VA. Change to your nearest region.
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  ORCHESTRATOR_PORT = "4000"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = "off"     # keep warm — model loading is slow on cold start
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "60s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 2048   # ~$10/mo. Bump to 4GB if voice runs OOM.
