@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { UserMenu } from "./UserMenu";
 
 const links = [
   { href: "/projects", label: "Projects" },
@@ -27,6 +28,7 @@ export function Nav() {
               {l.label}
             </Link>
           ))}
+          <UserMenu />
         </div>
       </div>
     </nav>

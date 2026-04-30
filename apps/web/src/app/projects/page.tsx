@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 import { ButtonLink } from "@/components/Button";
 
 export const dynamic = "force-dynamic";
@@ -14,11 +15,19 @@ interface ProjectRow {
 }
 
 export default async function ProjectsPage() {
+  const userClient = await createClient();
+  const { data: { user } } = await userClient.auth.getUser();
+
   const sb = supabaseAdmin();
-  const { data } = await sb
+  let query = sb
     .from("projects")
     .select("id, name, target_url, description, device_preset, created_at")
     .order("created_at", { ascending: false });
+  // Filter to current user's projects (admin client bypasses RLS, so we
+  // filter explicitly here).
+  if (user) query = query.eq("owner_id", user.id);
+
+  const { data } = await query;
   const projects = (data ?? []) as ProjectRow[];
 
   return (
